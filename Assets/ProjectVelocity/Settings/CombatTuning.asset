@@ -1,0 +1,38 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 69beb5e090b34799871b804c0d41f664, type: 3}
+  m_Name: CombatTuning
+  m_EditorClassIdentifier: ProjectVelocity.Runtime::ProjectVelocity.CombatTuning
+  attackCooldown: 0.35
+  killCooldown: 0.1
+  attackBufferTime: 0.1
+  hitReach: 2.2
+  slashActiveTime: 0.12
+  hitAngle: 100
+  attackRange: 9
+  selectionAngle: 35
+  cameraWeight: 0.5
+  movementWeight: 0.5
+  distancePreference: 0.4
+  selectionStickiness: 0.15
+  maxHeightAbove: 3
+  maxHeightBelow: 7
+  blockingLayers:
+    serializedVersion: 2
+    m_Bits: 4294967291
+  lungeSpeed: 30
+  lungeMaxDuration: 0.3
+  lungeTurnRate: 900
+  killRefreshesAirBoost: 1
+  killReadiesBoost: 1
+  killSpeedBonus: 3
+  killFovKick: 2
