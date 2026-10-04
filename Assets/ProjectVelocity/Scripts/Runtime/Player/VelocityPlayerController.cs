@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 
 namespace ProjectVelocity
@@ -30,6 +31,9 @@ namespace ProjectVelocity
 
         Vector3 spawnPosition;
         float spawnYaw;
+
+        /// <summary>Raised after <see cref="Respawn"/> has put the player back at the start (R / RESET, or a fall).</summary>
+        public event Action Respawned;
 
         public VelocityInputSource InputSource
         {
@@ -116,13 +120,26 @@ namespace ProjectVelocity
                 Respawn();
         }
 
+        /// <summary>
+        /// Back to the start, with motion, combat and every reality stage reset: the level spawn, or the start of the
+        /// <see cref="RespawnZone"/> you were in (so failing a section restarts that section).
+        /// </summary>
         public void Respawn()
         {
-            motor.Teleport(spawnPosition);
+            Vector3 position = spawnPosition;
+            float yaw = spawnYaw;
+            if (RespawnZone.TryGetRestart(transform.position, out Vector3 restart, out float restartYaw))
+            {
+                position = restart;
+                yaw = restartYaw;
+            }
+
+            motor.Teleport(position);
             if (cameraRig != null)
-                cameraRig.SnapBehindTarget(spawnYaw);
+                cameraRig.SnapBehindTarget(yaw);
             if (combat != null)
                 combat.ResetCombat();
+            Respawned?.Invoke();
         }
     }
 }
