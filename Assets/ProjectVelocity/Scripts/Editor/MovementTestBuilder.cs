@@ -157,7 +157,8 @@ namespace ProjectVelocity.EditorTools
                       "selected (yellow) enemy. " +
                       "The reality transformation section is behind the spawn to the right: turn around and run south-west to " +
                       "the red gate at x = -60, then west into the giant corridor and keep moving: the building rebuilds itself " +
-                      "around you in stages. R / RESET (or a fall) puts all of it back. " +
+                      "around you in stages, and red architecture can crush or hit you. Failing anywhere in it (or R / RESET) " +
+                      "restarts it from its entrance. " +
                       "Tune movement and targets on the Player (Velocity Motor), combat on the Player (Combat Controller) and " +
                       "camera on the Main Camera (Velocity Camera). " +
                       "Touch controls appear on Android/iOS and in the Device Simulator; to try them in the Game view, set " +
@@ -950,12 +951,17 @@ namespace ProjectVelocity.EditorTools
             public Material RealityWarning;
             public Material RealityShifting;
             public Material RealitySettled;
+            public Material HazardBody;
+            public Material HazardDormant;
+            public Material HazardWarning;
+            public Material HazardMoving;
         }
 
         // Colour-coded for readability only: orange = ramps, blue = elevated path, green = towers, red = markers, teal = wall-run walls,
         // violet = traversal targets (pink while selected, grey while cooling down), glowing red = enemies (yellow while selected),
         // dark violet-grey with glowing seams = reality-changing architecture (seams dim cyan while dormant, violet while about to
-        // move, bright cyan while moving, softer cyan once settled).
+        // move, bright cyan while moving, softer cyan once settled), dark red with red seams = dangerous architecture that can
+        // crush or hit you (seams flash orange just before it moves).
         static Palette CreatePalette()
         {
             Texture2D grid = LoadOrCreateGridTexture();
@@ -985,6 +991,10 @@ namespace ProjectVelocity.EditorTools
                 RealityWarning = GlowMat("Reality_Warning", new Color(0.80f, 0.45f, 1f), new Color(1.5f, 0.45f, 2.4f)),
                 RealityShifting = GlowMat("Reality_Shifting", new Color(0.80f, 1f, 1f), new Color(0.70f, 2.0f, 2.4f)),
                 RealitySettled = GlowMat("Reality_Settled", new Color(0.35f, 0.85f, 0.95f), new Color(0.12f, 0.65f, 0.80f)),
+                HazardBody = Mat("Hazard_Body", new Color(0.42f, 0.16f, 0.16f), grid),
+                HazardDormant = GlowMat("Hazard_Dormant", new Color(0.70f, 0.12f, 0.08f), new Color(0.45f, 0.04f, 0.02f)),
+                HazardWarning = GlowMat("Hazard_Warning", new Color(1f, 0.60f, 0.15f), new Color(2.4f, 0.95f, 0.15f)),
+                HazardMoving = GlowMat("Hazard_Moving", new Color(1f, 0.25f, 0.20f), new Color(2.2f, 0.25f, 0.15f)),
 
                 // Generated meshes last, after every asset operation, and only once the new scene is open (see Build).
                 TargetRing = GrayboxMeshes.Torus(TargetRingRadius, 0.12f, 48, 10),

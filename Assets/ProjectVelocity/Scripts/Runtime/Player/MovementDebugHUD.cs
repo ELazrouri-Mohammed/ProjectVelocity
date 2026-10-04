@@ -122,14 +122,18 @@ namespace ProjectVelocity
         }
 
         /// <summary>
-        /// How many reality stages have gone off, and the one moving right now (the latest to start), or null when the scene
-        /// has none.
+        /// How many reality stages have gone off, and the one moving right now (the latest to start); for a few seconds after
+        /// moving architecture resets you, what did it instead. Null when the scene has none.
         /// </summary>
         static string BuildReality()
         {
             var sequences = RealityTransformSequence.Active;
             if (sequences.Count == 0)
                 return null;
+
+            string failure = RealityTransformSequence.RecentFailure;
+            if (failure != null)
+                return $"Reality  RESET: {failure}";
 
             int started = 0;
             RealityTransformSequence moving = null;

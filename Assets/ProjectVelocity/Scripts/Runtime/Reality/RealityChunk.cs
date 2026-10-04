@@ -10,8 +10,9 @@ namespace ProjectVelocity
     /// This object is the pivot: put its origin where the piece should hinge, fold or roll around (it can be in mid-air),
     /// and its geometry and colliders in children. A piece can sit inside another piece to chain a second move onto the
     /// first (e.g. swing up in one stage, fold away again in a later one).
-    /// Its colliders are plain colliders moved by the transform: no Rigidbody, so physics never pushes anything with them,
-    /// and the character controller's overlap recovery treats them like the rest of the level.
+    /// Its colliders are plain box colliders moved by the transform: no Rigidbody, so physics never pushes anything with them.
+    /// When it moves into the player, <see cref="RealityTransformSequence"/> shoves the player out of it, resets them if
+    /// that leaves them pinned (crushed), and resets them at once if this piece is <see cref="IsLethal"/> (a hazard).
     /// </summary>
     [DisallowMultipleComponent]
     public sealed class RealityChunk : MonoBehaviour
@@ -52,6 +53,10 @@ namespace ProjectVelocity
         [Tooltip("How far (m) it shakes while warning, along its direction of travel (along the parent's X when it only turns). 0 = glow only.")]
         [SerializeField, Min(0f)] float tremble = 0.1f;
 
+        [Header("Danger")]
+        [Tooltip("Hazard: if it hits you while it moves, you're reset to the start of the section. Give it the red hazard look. (Any piece that pins you against something crushes you, hazard or not.)")]
+        [SerializeField] bool lethal;
+
         [Header("Placeholder Look")]
         [Tooltip("Glowing seams that switch material with the piece's state.")]
         [SerializeField] Renderer[] accentRenderers;
@@ -71,7 +76,8 @@ namespace ProjectVelocity
         // Progress of the pose last written to the transform (0-1), or negative when it has to be written again.
         float appliedProgress = -1f;
         Material shownMaterial;
-        Collider[] colliders;
+        BoxCollider[] boxes;
+        bool moving;
 
         public float Delay
         {
@@ -103,14 +109,23 @@ namespace ProjectVelocity
             set => tremble = Mathf.Max(0f, value);
         }
 
-        /// <summary>Every collider that moves with this piece (its own, and any inner piece's).</summary>
-        public Collider[] Colliders
+        public bool IsLethal
+        {
+            get => lethal;
+            set => lethal = value;
+        }
+
+        /// <summary>True while it is in its move (not while waiting, warning or settled).</summary>
+        public bool IsMoving => moving;
+
+        /// <summary>Every box that moves with this piece (its own, and any inner piece's).</summary>
+        public BoxCollider[] Boxes
         {
             get
             {
-                if (colliders == null)
-                    colliders = GetComponentsInChildren<Collider>(true);
-                return colliders;
+                if (boxes == null)
+                    boxes = GetComponentsInChildren<BoxCollider>(true);
+                return boxes;
             }
         }
 
@@ -141,6 +156,7 @@ namespace ProjectVelocity
         {
             ApplyPose(0f, Vector3.zero);
             appliedProgress = 0f;
+            moving = false;
             SetMaterial(dormantMaterial);
         }
 
@@ -157,6 +173,7 @@ namespace ProjectVelocity
 
             bool waiting = time < 0f;
             bool warning = waiting && time >= -anticipation;
+            moving = !waiting && time < length;
             Material look = warning ? warningMaterial
                 : waiting ? (pulse ? shiftingMaterial : dormantMaterial)
                 : time < length + landingFlash ? shiftingMaterial
@@ -189,7 +206,7 @@ namespace ProjectVelocity
                 body.useGravity = false;
                 body.interpolation = RigidbodyInterpolation.None;
             }
-            colliders = GetComponentsInChildren<Collider>(true);
+            boxes = GetComponentsInChildren<BoxCollider>(true);
         }
 
         void ApplyPose(float progress, Vector3 offset)

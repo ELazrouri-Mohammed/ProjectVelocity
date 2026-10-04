@@ -5,8 +5,8 @@ using UnityEngine.Rendering;
 namespace ProjectVelocity.EditorTools
 {
     /// <summary>
-    /// Section J: the reality transformation run. A monumental building that rewrites itself around you, in stages, while
-    /// you keep moving. See <see cref="BuildRealitySection"/>.
+    /// Section J: the reality-breaking run. A building that keeps rewriting itself around you, getting more unstable and
+    /// more dangerous as you go. See <see cref="BuildRealitySection"/>.
     /// </summary>
     public static partial class MovementTestBuilder
     {
@@ -14,42 +14,44 @@ namespace ProjectVelocity.EditorTools
         // l = metres to the right of its centre line when running along it (z = JCentreZ + l), y = height.
         const float JStartX = -130f;
         const float JCentreZ = -90f;
-        // Heights (m): the upper deck after the climb, the path that replaces the betrayed bridge (and the floor the wall
-        // turns into), and the finish.
-        const float JDeckY = 23f;
-        const float JPathY = 21f;
-        const float JFinishY = 18f;
         // Thickness of the glowing seams on reality pieces (m).
         const float SeamSize = 0.45f;
 
-        // Triggers face the way the route runs (west).
+        // Triggers and the restart point face the way the route runs (west).
         static readonly Quaternion JFacing = Quaternion.Euler(0f, 270f, 0f);
 
         /// <summary>
-        /// J: reality transformation, behind the spawn to the right (turn around and run south-west to the pair of red gate
-        /// markers at x = -60, then west into the giant corridor). Dark violet-grey pieces with glowing seams are the
-        /// architecture that rewrites itself: seams dim cyan while dormant, violet (and trembling) just before they move,
-        /// bright cyan while moving, softer once settled. Eight automatic stages (A-G, each fired by crossing a volume on the
-        /// route) set it off progressively, close to you; nothing waits for you and nothing stops you.
-        ///   A  corridor: a 24 m slab erupts out of the right wall ahead: steer left. (The wall crown and a sky beam shift.)
-        ///   B  the floor erupts: a 12 m block and a 2.2 m step burst up across your lane (go right, or hop the step), a block
-        ///      slams down over the right lane, the floor behind you falls into the abyss, and the floor ahead folds up into
-        ///      a 30° climb that throws you onto the upper deck.
-        ///   C  on the climb: a beam sweeps overhead, two blades shoot up beside the deck, a slab bursts from the right wall
-        ///      (go left), a door swings shut from the left (go right), a wall panel opens onto a glowing core.
-        ///   C2 a hurdle slides across the deck (jump), then the deck ahead collapses: a 19 m gap (boost).
-        ///   D  the bridge straight ahead drops away; a path swings up from the abyss on the left (steer left and jump).
-        ///   E  a 60 m wall ahead turns over around its own middle into the floor, its rib becoming a wall beside it.
-        ///   F  the floor ends, the rib wall goes on over the void: wall run, wall jump; a slab sweeps beneath you, the path
-        ///      behind folds away, a giant wall rises.
-        ///   G  through the traversal target onto the blue finish, while the wall turns back up and a gate slams behind you.
-        /// Falling into the void respawns you; respawning (R / RESET, or the fall) puts every piece back and re-arms every stage.
+        /// J: reality-breaking traversal, behind the spawn to the right (turn around and run south-west to the pair of red
+        /// gate markers at x = -60, then west into the giant corridor). About 30-45 s, escalating. Dark violet-grey pieces
+        /// with glowing seams rebuild the route (seams turn violet and the piece trembles just before it moves); dark red
+        /// pieces with red seams are dangerous (they flash orange before they move): red that crushes or hits you resets you.
+        /// Eight automatic stages fire as you cross volumes on the route:
+        ///   A  slabs erupt out of the right, then the left wall (slalom), while the corridor floor collapses behind you.
+        ///   B  the road ahead peels up off the ground and slams against the left wall: no floor, wall run it.
+        ///   C  the corridor crushes shut, segment after segment, from both walls: boost through or be crushed.
+        ///   D  the bridge splits into drifting pieces (jump between them) and a red wall sweeps across it (time it).
+        ///   E  the landing ahead drops away; arms swing two traversal targets in and a new route rises far to the right.
+        ///   F  the room you run into rolls 90° around you: the left wall becomes the floor, its window becomes a pit
+        ///      (wall run across).
+        ///   G  the plaza floor opens under you: fall, as debris assembles into a landing beneath you and a red block
+        ///      crashes onto it (steer around).
+        ///   H  the landing falls away behind you as you jump to the finish.
+        /// Failing anywhere in J (falling, being hit or crushed, or R / RESET) restarts J from its entrance, with every piece
+        /// back in place and every stage re-armed.
         /// </summary>
         static void BuildRealitySection(Transform root, Palette p)
         {
             Transform section = Group("J - Reality Transformation", root);
             Pillar(section, new Vector3(-60f, 0f, JCentreZ + 8f), 1f, 6f, p.Marker);
             Pillar(section, new Vector3(-60f, 0f, JCentreZ - 8f), 1f, 6f, p.Marker);
+
+            // Failing inside J restarts J: at the corridor entrance, facing in. Two zones, so the first one stays clear of
+            // section I's ground to the north.
+            var restart = new GameObject("J Restart Point");
+            restart.transform.SetParent(section, false);
+            restart.transform.SetPositionAndRotation(J(-5f, 0f, 0.1f), JFacing);
+            Zone("Respawn Zone (corridor)", section, -8f, 160f, -150f, 28f, restart.transform);
+            Zone("Respawn Zone (beyond)", section, 160f, 1000f, -150f, 150f, restart.transform);
 
             BuildRealityArchitecture(section, p);
             BuildRealityStages(section, p);
@@ -59,297 +61,263 @@ namespace ProjectVelocity.EditorTools
                 piece.SnapToInitial();
         }
 
-        /// <summary>Everything in J that never moves: the corridor, the upper deck, the finish.</summary>
+        /// <summary>Everything in J that never moves.</summary>
         static void BuildRealityArchitecture(Transform section, Palette p)
         {
             // J1: monumental corridor, 28 m wide between 6 m thick walls that stand 48 m tall (and drop 40 m into the abyss).
             // The gaps in the walls are where pieces come out of them.
-            Transform corridor = Group("J1 - Monumental Corridor", section);
+            Transform corridor = Group("J1 - Corridor", section);
             JBox("Entrance Lintel", corridor, 0f, 4f, -14f, 14f, 36f, 48f, p.Block);
-            foreach (float s in new[] { 12f, 32f, 52f })
+            foreach (float s in new[] { 12f, 32f })
             {
                 JBox("Pilaster", corridor, s - 1f, s + 1f, -14f, -12.5f, 0f, 48f, p.Block);
                 JBox("Pilaster", corridor, s - 1f, s + 1f, 12.5f, 14f, 0f, 48f, p.Block);
             }
 
-            JWall("Left Wall", corridor, -1f, 0f, 246f, -40f, 48f, p);
-            JWall("Left Wall (under the beam window)", corridor, -1f, 246f, 254f, -40f, 30f, p);
-            JWall("Left Wall (over the beam window)", corridor, -1f, 246f, 254f, 36f, 48f, p);
-            JWall("Left Wall", corridor, -1f, 254f, 305f, -40f, 48f, p);
-            JBox("Left Wall (behind the door)", corridor, 305f, 320f, -20f, -17f, -40f, 48f, p.Block);
-            JBox("Left Wall (under the door)", corridor, 305f, 320f, -17f, -14f, -40f, JDeckY, p.Block);
-            JBox("Left Wall (over the door)", corridor, 305f, 320f, -17f, -14f, 43f, 48f, p.Block);
-            JWall("Left Wall", corridor, -1f, 320f, 340f, -40f, 48f, p);
-            JWall("Left Wall (under the panel)", corridor, -1f, 340f, 360f, -40f, JDeckY, p);
-            JWall("Left Wall", corridor, -1f, 360f, 400f, -40f, 48f, p);
+            JWall("Left Wall", corridor, -1f, 0f, 104f, -40f, 48f, p);
+            JWall("Left Wall (under the slab)", corridor, -1f, 104f, 126f, -40f, 0f, p);
+            JWall("Left Wall (over the slab)", corridor, -1f, 104f, 126f, 30f, 48f, p);
+            JWall("Left Wall", corridor, -1f, 126f, 230f, -40f, 48f, p);
+            JWall("Left Wall (under the crusher)", corridor, -1f, 230f, 302f, -40f, 0f, p);
+            JWall("Left Wall (over the crusher)", corridor, -1f, 230f, 302f, 16f, 48f, p);
+            JWall("Left Wall", corridor, -1f, 302f, 306f, -40f, 48f, p);
 
-            JWall("Right Wall", corridor, 1f, 0f, 88f, -40f, 48f, p);
-            JWall("Right Wall (under the slab)", corridor, 1f, 88f, 112f, -40f, 0f, p);
-            JWall("Right Wall (over the slab)", corridor, 1f, 88f, 112f, 30f, 48f, p);
-            JWall("Right Wall", corridor, 1f, 112f, 246f, -40f, 48f, p);
-            JWall("Right Wall (under the beam window)", corridor, 1f, 246f, 254f, -40f, 30f, p);
-            JWall("Right Wall (over the beam window)", corridor, 1f, 246f, 254f, 36f, 48f, p);
-            JWall("Right Wall", corridor, 1f, 254f, 280f, -40f, 48f, p);
-            JWall("Right Wall (under the slab)", corridor, 1f, 280f, 294f, -40f, JDeckY, p);
-            JWall("Right Wall (over the slab)", corridor, 1f, 280f, 294f, 41f, 48f, p);
-            JWall("Right Wall", corridor, 1f, 294f, 334f, -40f, 48f, p);
-            JWall("Right Wall (under the hurdle slot)", corridor, 1f, 334f, 337f, -40f, JDeckY, p);
-            JWall("Right Wall (over the hurdle slot)", corridor, 1f, 334f, 337f, JDeckY + 1.6f, 48f, p);
-            JWall("Right Wall", corridor, 1f, 337f, 400f, -40f, 48f, p);
+            JWall("Right Wall", corridor, 1f, 0f, 70f, -40f, 48f, p);
+            JWall("Right Wall (under the slab)", corridor, 1f, 70f, 92f, -40f, 0f, p);
+            JWall("Right Wall (over the slab)", corridor, 1f, 70f, 92f, 30f, 48f, p);
+            JWall("Right Wall", corridor, 1f, 92f, 230f, -40f, 48f, p);
+            JWall("Right Wall (under the crusher)", corridor, 1f, 230f, 302f, -40f, 0f, p);
+            JWall("Right Wall (over the crusher)", corridor, 1f, 230f, 302f, 16f, 48f, p);
+            JWall("Right Wall", corridor, 1f, 302f, 306f, -40f, 48f, p);
 
-            // Lower floor. The first 80 m (stage B collapses it), the erupting blocks and the plate that folds into the climb
-            // are reality pieces; past the climb there is no floor at all, only the abyss.
-            JBox("Floor", corridor, 80f, 150f, -14f, 14f, -3f, 0f, p.Floor);
-            JBox("Floor (beside the erupting blocks)", corridor, 150f, 166f, 4f, 14f, -3f, 0f, p.Floor);
-            JBox("Floor", corridor, 166f, 190f, -14f, 14f, -3f, 0f, p.Floor);
+            // The first 150 m of floor (stage A collapses it behind you) and the road (stage B peels it up) are reality pieces.
+            JBox("Floor", corridor, 150f, 175f, -14f, 14f, -3f, 0f, p.Floor);
+            JBox("Floor (crusher)", corridor, 211f, 306f, -14f, 14f, -3f, 0f, p.Floor);
 
-            // J2: the upper deck the climb throws you onto, 23 m up inside the canyon. It narrows where the blades rise
-            // beside it, and has a 19 m hole where stage C2 drops its floor.
-            Transform deck = Group("J2 - Upper Deck", section);
-            // The lip starts as close to the climb's top edge as its swing allows (a 0.76 m slot: narrower than the player).
-            JBox("Lip (top of the climb)", deck, 230.6f, 236f, -14f, 14f, JDeckY - 1f, JDeckY, p.Elevated);
-            JBox("Deck", deck, 236f, 254f, -14f, 14f, JDeckY - 10f, JDeckY, p.Elevated);
-            JBox("Deck (between the blades)", deck, 254f, 278f, -11f, 11f, JDeckY - 10f, JDeckY, p.Elevated);
-            JBox("Deck", deck, 278f, 362f, -14f, 14f, JDeckY - 10f, JDeckY, p.Elevated);
-            JBox("Deck (after the gap)", deck, 381f, 432f, -14f, 14f, JDeckY - 10f, JDeckY, p.Elevated);
-            // What the opening wall panel reveals: impossible architecture glowing inside the wall.
-            JBox("Impossible Core", deck, 343f, 357f, -42f, -30f, 22f, 44f, p.RealityWarning);
+            // J2: the bridge out of the corridor (its first piece; stage D splits the rest), the arms' hubs on the right.
+            Transform bridge = Group("J2 - Bridge", section);
+            JBox("Bridge (first piece)", bridge, 306f, 330f, -6f, 6f, -2f, 0f, p.Block);
+            JBox("Arm 1 Hub Support", bridge, 443f, 447f, 44f, 48f, -40f, 5f, p.Pillar);
+            JBox("Arm 2 Hub Support", bridge, 483f, 487f, 68f, 72f, -40f, 9f, p.Pillar);
 
-            // J3: escape. The traversal target past the end of the wall run, and the stable finish below it.
-            Transform exit = Group("J3 - Escape", section);
-            Target("Target - Escape", exit, J(598f, -20f, 30f), p);
-            JBox("Finish (18 m)", exit, 605f, 680f, -34f, 16f, JFinishY - 10f, JFinishY, p.Elevated);
-            JBox("End Wall", exit, 677f, 680f, -34f, 16f, JFinishY, JFinishY + 6f, p.Block);
+            // J3: out of the rolling room onto a walled plaza whose floor opens (stage G), and the finish far below it.
+            Transform plaza = Group("J3 - Plaza And Finish", section);
+            JBox("Exit Of The Room", plaza, 665f, 700f, 41f, 63f, 10f, 20f, p.Elevated);
+            JBox("Plaza", plaza, 700f, 715f, 30f, 74f, 10f, 20f, p.Elevated);
+            JBox("Plaza Wall (left)", plaza, 700f, 770f, 26f, 30f, 10f, 60f, p.Block);
+            JBox("Plaza Wall (right)", plaza, 700f, 770f, 74f, 78f, 10f, 60f, p.Block);
+            JBox("Finish (-16 m)", plaza, 800f, 860f, 30f, 74f, -26f, -16f, p.Elevated);
+            JBox("End Wall", plaza, 857f, 860f, 30f, 74f, -16f, -10f, p.Block);
         }
 
         /// <summary>
-        /// The reality pieces, stage by stage. Each piece is tagged: [gameplay] changes the route, [near miss] passes close
-        /// but never into the route, [background] is spectacle, [behind you] changes what you have already crossed.
-        /// Timings (delay / duration / anticipation, s) are tuned so the route pieces have landed before you can reach them
-        /// even at boost-spamming speed (about 38 m/s), while at a plain 22 m/s run you see them happen right ahead of you.
+        /// The reality pieces, stage by stage. Names say what each one asks of you. Timings (delay / duration / anticipation,
+        /// s) were checked offline against steady runs from 22 to 38 m/s: route pieces are in place before you can reach
+        /// them, the crusher needs boosting (a plain 22 m/s run is crushed, about 26 m/s gets through), and the sweeping wall
+        /// catches a steady 26-30 m/s run unless you react to its warning.
         /// </summary>
         static void BuildRealityStages(Transform section, Palette p)
         {
-            // ---------------- A: the building is alive. 38 m before the slab, a normal-looking corridor wakes up.
-            RealityTransformSequence stageA = Stage("Stage A - The Building Is Alive", section, J(88f, 0f, 0f), 38f, new Vector3(32f, 40f, 6f));
+            // ---------------- A: the building wakes. Fires at s 40.
+            RealityTransformSequence stageA = Stage("Stage A - The Building Wakes", section, J(70f, 0f, 0f), 30f, new Vector3(32f, 40f, 6f));
 
-            RealityChunk wallSlab = Piece("A1 Slab Erupts From The Right Wall [gameplay: steer left]", stageA.transform, J(100f, 7f, 15f));
-            Body(wallSlab, 88f, 112f, 0f, 14f, 0f, 30f, p);
-            OutlineSide(wallSlab, 0f, 88f, 112f, 0f, 30f, p);
-            Animate(wallSlab, JOffset(0f, 14f, 0f), Vector3.zero, Vector3.zero, Vector3.zero, 0.35f, 0.55f, Eruption(), 0.35f, 0.15f, p);
+            RealityChunk slabRight = Piece("A1 Slab Erupts From The Right Wall [steer left]", stageA.transform, J(81f, 7f, 15f));
+            Body(slabRight, 70f, 92f, 0f, 14f, 0f, 30f, p);
+            OutlineSide(slabRight, 0f, 70f, 92f, 0f, 30f, p);
+            Animate(slabRight, JOffset(0f, 14f, 0f), Vector3.zero, Vector3.zero, Vector3.zero, 0.25f, 0.45f, Eruption(), 0.25f, 0.15f, p);
 
-            RealityChunk crown = Piece("A2 Wall Crown Lurches Forward [background]", stageA.transform, J(145f, -17f, 55f));
-            Body(crown, 120f, 170f, -22f, -12f, 48f, 62f, p);
-            Seam(crown, 120f, -12f, 48f, 170f, -12f, 48f, p);
-            Seam(crown, 120f, -12f, 62f, 170f, -12f, 62f, p);
-            Animate(crown, Vector3.zero, Vector3.zero, JOffset(30f, 0f, 6f), Vector3.zero, 0.2f, 2f, HeavySafe(), 0.3f, 0.2f, p);
+            RealityChunk slabLeft = Piece("A2 Slab Erupts From The Left Wall [steer right]", stageA.transform, J(115f, -7f, 15f));
+            Body(slabLeft, 104f, 126f, -14f, 0f, 0f, 30f, p);
+            OutlineSide(slabLeft, 0f, 104f, 126f, 0f, 30f, p);
+            Animate(slabLeft, JOffset(0f, -14f, 0f), Vector3.zero, Vector3.zero, Vector3.zero, 0.95f, 0.45f, Eruption(), 0.3f, 0.15f, p);
 
-            RealityChunk skyBeam = Piece("A3 Sky Beam Turns Over The Canyon [background]", stageA.transform, J(203f, 0f, 73f));
-            Body(skyBeam, 200f, 206f, -45f, 45f, 70f, 76f, p);
-            Seam(skyBeam, 200f, -45f, 70f, 200f, 45f, 70f, p);
-            Seam(skyBeam, 206f, -45f, 70f, 206f, 45f, 70f, p);
-            Animate(skyBeam, Vector3.zero, Vector3.zero, Vector3.zero, new Vector3(0f, 90f, 0f), 0.5f, 2.4f, Heavy(), 0.3f, 0.3f, p);
-
-            stageA.SetChunks(new[] { wallSlab, crown, skyBeam });
-
-            // ---------------- B: the floor attacks, 32 m before the blocks. Then the floor ahead throws you upward.
-            RealityTransformSequence stageB = Stage("Stage B - The Floor Attacks", section, J(150f, 0f, 0f), 32f, new Vector3(32f, 40f, 6f));
-
-            RealityChunk bigBlock = Piece("B1 Block Erupts From The Floor (12 m) [gameplay: go right]", stageB.transform, J(158f, -8f, 0f));
-            Body(bigBlock, 150f, 166f, -14f, -2f, -14f, 12f, p);
-            OutlineFlat(bigBlock, 12f, 150f, 166f, -14f, -2f, p);
-            Animate(bigBlock, JOffset(0f, 0f, -12f), Vector3.zero, Vector3.zero, Vector3.zero, 0.25f, 0.4f, Rise(), 0.25f, 0.06f, p);
-
-            RealityChunk step = Piece("B2 Step Erupts From The Floor (2.2 m) [gameplay: or jump onto it]", stageB.transform, J(158f, 1f, 0f));
-            Body(step, 150f, 166f, -2f, 4f, -7.8f, 2.2f, p);
-            OutlineFlat(step, 2.2f, 150f, 166f, -2f, 4f, p);
-            Animate(step, JOffset(0f, 0f, -2.2f), Vector3.zero, Vector3.zero, Vector3.zero, 0.3f, 0.35f, Rise(), 0.3f, 0.05f, p);
-
-            // Stops 8 m above the free lane (3 m above the top of a jump) and 1.5 m clear of the right wall, so it never
-            // reaches anyone, running, jumping or wall running.
-            RealityChunk hammer = Piece("B3 Block Slams Down Over The Right Lane [near miss: overhead]", stageB.transform, J(150f, 8.75f, 15f));
-            Body(hammer, 140f, 160f, 5f, 12.5f, 8f, 22f, p);
-            OutlineFlat(hammer, 8f, 140f, 160f, 5f, 12.5f, p);
-            Animate(hammer, JOffset(0f, 0f, 42f), Vector3.zero, Vector3.zero, Vector3.zero, 0.45f, 0.45f, Slam(), 0.3f, 0.25f, p);
-
-            // Hinged on its near edge: 46 m of floor tips up to 30° (walkable), its top meeting the lip of the upper deck.
-            RealityChunk climb = Piece("B4 Floor Folds Up Into A Climb (30°) [gameplay: run up it]", stageB.transform, J(190f, 0f, 0f));
-            Body(climb, 190f, 236f, -14f, 14f, -3f, 0f, p);
-            OutlineFlat(climb, 0f, 190f, 236f, -14f, 14f, p);
-            Animate(climb, Vector3.zero, Vector3.zero, Vector3.zero, new Vector3(0f, 0f, -30f), 0.8f, 1f, HeavySafe(), 0.35f, 0.06f, p);
-
-            // The first 80 m of floor, split down the middle and hinged on the walls, swings down and falls into the abyss behind
-            // you. The halves are 1 m thick with a 0.1 m split, so their inner edges never brush as they start to tip.
-            RealityChunk floorBehindLeft = Piece("B5 Floor Behind You Falls Away (left) [behind you]", stageB.transform, J(40f, -14f, -1f));
-            Body(floorBehindLeft, 0f, 80f, -14f, -0.05f, -1f, 0f, p);
-            Seam(floorBehindLeft, 0f, -0.05f, 0f, 80f, -0.05f, 0f, p);
-            Seam(floorBehindLeft, 0f, -14f, 0f, 80f, -14f, 0f, p);
-            Animate(floorBehindLeft, Vector3.zero, Vector3.zero, JOffset(0f, 0f, -35f), new Vector3(90f, 0f, 0f), 0.3f, 1.6f, Collapse(), 0.3f, 0.08f, p);
-
-            RealityChunk floorBehindRight = Piece("B6 Floor Behind You Falls Away (right) [behind you]", stageB.transform, J(40f, 14f, -1f));
-            Body(floorBehindRight, 0f, 80f, 0.05f, 14f, -1f, 0f, p);
-            Seam(floorBehindRight, 0f, 14f, 0f, 80f, 14f, 0f, p);
-            Animate(floorBehindRight, Vector3.zero, Vector3.zero, JOffset(0f, 0f, -35f), new Vector3(-90f, 0f, 0f), 0.45f, 1.6f, Collapse(), 0.3f, 0.08f, p);
-
-            stageB.SetChunks(new[] { bigBlock, step, hammer, climb, floorBehindLeft, floorBehindRight });
-
-            // ---------------- C: on the climb. The upper deck rebuilds itself around you.
-            RealityTransformSequence stageC = Stage("Stage C - The Building Rebuilds Around You", section, J(236f, 0f, JDeckY), 31f, new Vector3(32f, 50f, 6f));
-
-            // 8 m above the deck (3 m above the top of a jump), through windows in both walls.
-            RealityChunk beam = Piece("C1 Beam Sweeps Across Overhead [near miss: overhead]", stageC.transform, J(250f, 0f, 33f));
-            Body(beam, 248f, 252f, -20f, 20f, 31f, 35f, p);
-            Seam(beam, 248f, -20f, 31f, 248f, 20f, 31f, p);
-            Seam(beam, 252f, -20f, 31f, 252f, 20f, 31f, p);
-            Animate(beam, JOffset(0f, -60f, 0f), Vector3.zero, JOffset(0f, 60f, 0f), Vector3.zero, 0.6f, 2f, AnimationCurve.Linear(0f, 0f, 1f, 1f), 0.3f, 0f, p);
-
-            // In 3 m slots beside the deck: 1 m clear of its edges, shooting 20 m above it. Walls to run on, too.
-            RealityChunk bladeLeft = Piece("C2 Blade Shoots Up Beside The Deck (left) [near miss: beside]", stageC.transform, J(266f, -12.5f, JDeckY));
-            Body(bladeLeft, 254f, 278f, -13f, -12f, 3f, 43f, p);
-            Seam(bladeLeft, 254f, -12f, 43f, 278f, -12f, 43f, p);
-            Seam(bladeLeft, 254f, -13f, 43f, 278f, -13f, 43f, p);
-            Seam(bladeLeft, 254f, -12f, JDeckY, 254f, -12f, 43f, p);
-            Animate(bladeLeft, JOffset(0f, 0f, -50f), Vector3.zero, Vector3.zero, Vector3.zero, 1.3f, 0.4f, Rise(), 0f, 0f, p);
-
-            RealityChunk bladeRight = Piece("C3 Blade Shoots Up Beside The Deck (right) [near miss: beside]", stageC.transform, J(266f, 12.5f, JDeckY));
-            Body(bladeRight, 254f, 278f, 12f, 13f, 3f, 43f, p);
-            Seam(bladeRight, 254f, 12f, 43f, 278f, 12f, 43f, p);
-            Seam(bladeRight, 254f, 13f, 43f, 278f, 13f, 43f, p);
-            Seam(bladeRight, 254f, 12f, JDeckY, 254f, 12f, 43f, p);
-            Animate(bladeRight, JOffset(0f, 0f, -50f), Vector3.zero, Vector3.zero, Vector3.zero, 1.35f, 0.4f, Rise(), 0f, 0f, p);
-
-            RealityChunk rightSlab = Piece("C4 Slab Erupts From The Right Wall [gameplay: steer left]", stageC.transform, J(287f, 7.5f, 32f));
-            Body(rightSlab, 280f, 294f, 1f, 14f, JDeckY, 41f, p);
-            OutlineSide(rightSlab, 1f, 280f, 294f, JDeckY, 41f, p);
-            Animate(rightSlab, JOffset(0f, 13f, 0f), Vector3.zero, Vector3.zero, Vector3.zero, 1.2f, 0.5f, Eruption(), 0.4f, 0.15f, p);
-
-            // Hinged on the left wall at its far end, so it swings away from you (anything it catches is pushed forward).
-            RealityChunk door = Piece("C5 Door Swings Out Of The Left Wall [gameplay: steer right]", stageC.transform, J(320f, -14f, JDeckY));
-            Body(door, 317f, 320f, -14f, 0f, JDeckY, 43f, p);
-            OutlineEnd(door, 317f, -14f, 0f, JDeckY, 43f, p);
-            Animate(door, Vector3.zero, new Vector3(0f, 90f, 0f), Vector3.zero, Vector3.zero, 1.6f, 0.8f, Sweep(), 0.4f, 0.1f, p);
-
-            RealityChunk panel = Piece("C6 Wall Panel Opens Onto A Glowing Core [background]", stageC.transform, J(350f, -17f, 35.5f));
-            Body(panel, 340f, 360f, -20f, -14f, JDeckY, 48f, p);
-            OutlineSide(panel, -14f, 340f, 360f, JDeckY, 48f, p);
-            Animate(panel, Vector3.zero, Vector3.zero, JOffset(0f, -8f, 30f), Vector3.zero, 1f, 1.6f, Retract(), 0.5f, 0.12f, p);
-
-            stageC.SetChunks(new[] { beam, bladeLeft, bladeRight, rightSlab, door, panel });
-
-            // ---------------- C2: jump, then boost. 32 m before the hurdle.
-            RealityTransformSequence stageC2 = Stage("Stage C2 - Jump, Then Boost", section, J(334f, 0f, JDeckY), 32f, new Vector3(32f, 40f, 6f));
-
-            // Full width, 1.6 m tall: too tall to step over, easy to jump. Stops 1 m short of the left wall, so it never pins anyone.
-            RealityChunk hurdle = Piece("C7 Hurdle Slides Across The Deck [gameplay: jump]", stageC2.transform, J(335.5f, 0.5f, JDeckY + 0.8f));
-            Body(hurdle, 334f, 337f, -13f, 14f, JDeckY, JDeckY + 1.6f, p);
-            Seam(hurdle, 334f, -13f, JDeckY + 1.6f, 334f, 14f, JDeckY + 1.6f, p);
-            Seam(hurdle, 337f, -13f, JDeckY + 1.6f, 337f, 14f, JDeckY + 1.6f, p);
-            Animate(hurdle, JOffset(0f, 28f, 0f), Vector3.zero, Vector3.zero, Vector3.zero, 0.15f, 0.45f, Slide(), 0.15f, 0.1f, p);
-
-            // 19 m of deck, split down the middle and hinged on its outer edges, swings down and falls: too far to jump, not
-            // with a boost. Thin halves with a 0.1 m split, like the floor behind you in stage B.
-            RealityChunk gapLeft = Piece("C8 Deck Collapses (left) [gameplay: boost across]", stageC2.transform, J(371.5f, -14f, JDeckY - 1f));
-            Body(gapLeft, 362f, 381f, -14f, -0.05f, JDeckY - 1f, JDeckY, p);
-            Seam(gapLeft, 362f, -0.05f, JDeckY, 381f, -0.05f, JDeckY, p);
-            Seam(gapLeft, 362f, -14f, JDeckY, 381f, -14f, JDeckY, p);
-            Animate(gapLeft, Vector3.zero, Vector3.zero, JOffset(0f, 0f, -30f), new Vector3(90f, 0f, 0f), 0.5f, 0.7f, Collapse(), 0.3f, 0.08f, p);
-
-            RealityChunk gapRight = Piece("C9 Deck Collapses (right) [gameplay: boost across]", stageC2.transform, J(371.5f, 14f, JDeckY - 1f));
-            Body(gapRight, 362f, 381f, 0.05f, 14f, JDeckY - 1f, JDeckY, p);
-            Seam(gapRight, 362f, 14f, JDeckY, 381f, 14f, JDeckY, p);
-            Animate(gapRight, Vector3.zero, Vector3.zero, JOffset(0f, 0f, -30f), new Vector3(-90f, 0f, 0f), 0.55f, 0.7f, Collapse(), 0.3f, 0.08f, p);
-
-            stageC2.SetChunks(new[] { hurdle, gapLeft, gapRight });
-
-            // ---------------- D: the route betrays you. 45 m before the end of the deck, past the gap.
-            RealityTransformSequence stageD = Stage("Stage D - The Route Betrays You", section, J(432f, 0f, JDeckY), 45f, new Vector3(32f, 40f, 6f));
-
-            // Hinged on its near bottom edge, so it swings down away from the deck, never back into it. It stops 1 m short of the
-            // tower it seems to lead into, so its end never brushes the tower as it starts to drop.
-            RealityChunk bridge = Piece("D1 Bridge Ahead Drops Away [gameplay: don't take it]", stageD.transform, J(432f, 0f, JDeckY - 3f));
-            Body(bridge, 432f, 496f, -7f, 7f, JDeckY - 3f, JDeckY, p);
-            Seam(bridge, 432f, -7f, JDeckY, 496f, -7f, JDeckY, p);
-            Seam(bridge, 432f, 7f, JDeckY, 496f, 7f, JDeckY, p);
-            Seam(bridge, 496f, -7f, JDeckY, 496f, 7f, JDeckY, p);
-            Animate(bridge, Vector3.zero, Vector3.zero, JOffset(0f, 0f, -45f), new Vector3(0f, 0f, 90f), 0.25f, 0.9f, Collapse(), 0.25f, 0.15f, p);
-
-            // 4 m left of the deck and 2 m lower, alongside its last 20 m (the window to jump across), hanging into the abyss
-            // from its outer edge until it swings up (it stays below the route the whole way). Stage F folds it away again,
-            // through the inner piece.
-            RealityChunk path = Piece("D2 Path Swings Up From The Abyss (left) [gameplay: steer left and jump]", stageD.transform, J(451f, -34f, JPathY));
-            RealityChunk pathFolds = Piece("F2 (stage F) Path Folds Back Into The Abyss [behind you]", path.transform, J(451f, -34f, JPathY));
-            Body(pathFolds, 412f, 490f, -34f, -18f, JPathY - 3f, JPathY, p);
-            Seam(pathFolds, 412f, -34f, JPathY, 490f, -34f, JPathY, p);
-            Seam(pathFolds, 412f, -18f, JPathY, 490f, -18f, JPathY, p);
-            Animate(path, Vector3.zero, new Vector3(90f, 0f, 0f), Vector3.zero, Vector3.zero, 0.1f, 0.85f, SwingUp(), 0.1f, 0f, p);
-            Animate(pathFolds, Vector3.zero, Vector3.zero, JOffset(0f, 0f, -40f), new Vector3(90f, 0f, 0f), 0.2f, 1.2f, Collapse(), 0.2f, 0.1f, p);
-
-            RealityChunk barrier = Piece("D3 Wall Shoots Up Beside The Deck (right) [near miss: beside]", stageD.transform, J(415.5f, 15.7f, 35f));
-            Body(barrier, 401f, 430f, 14.2f, 17.2f, 20f, 50f, p);
-            OutlineSide(barrier, 14.2f, 401f, 430f, 20f, 50f, p);
-            Animate(barrier, JOffset(0f, 0f, -60f), Vector3.zero, Vector3.zero, Vector3.zero, 0.15f, 0.5f, Rise(), 0.15f, 0f, p);
-
-            RealityChunk decoy = Piece("D4 Tower The Bridge Led To Sinks [background]", stageD.transform, J(512f, 0f, 40f));
-            Body(decoy, 497f, 527f, -12f, 12f, -60f, 40f, p);
-            OutlineEnd(decoy, 497f, -12f, 12f, -60f, 40f, p);
-            Animate(decoy, Vector3.zero, Vector3.zero, JOffset(0f, 0f, -120f), Vector3.zero, 0.45f, 1.6f, Retract(), 0.45f, 0.25f, p);
-
-            stageD.SetChunks(new[] { bridge, path, barrier, decoy });
-
-            // ---------------- E: the wall becomes the floor. 70 m before the wall, as you reach the new path.
-            RealityTransformSequence stageE = Stage("Stage E - The Wall Becomes The Floor", section, J(490f, -13f, JPathY), 70f, new Vector3(54f, 50f, 8f));
-
-            // A 60 m wall standing across the path (with a 10 m rib on its left and a spire rising to 81 m) turns 90° around
-            // its own middle, in mid-air: the top falls away from you, the bottom swings up out of the abyss to meet the end
-            // of the path, never above it. Its face becomes the floor and the rib a wall beside it that runs 30 m past the
-            // end of the floor. Stage G turns it back up, through the inner piece.
-            RealityChunk monolith = Piece("E1 Wall Ahead Turns Into The Floor [gameplay: run onto it]", stageE.transform, J(520f, -26f, JPathY));
-            RealityChunk monolithBack = Piece("G1 (stage G) Wall Turns Back Up Behind You [behind you]", monolith.transform, J(520f, -26f, JPathY));
-            Body(monolithBack, 490f, 550f, -34f, -16f, JPathY - 4f, JPathY, p, "Face (the floor)");
-            Body(monolithBack, 510f, 580f, -36f, -34f, JPathY, JPathY + 10f, p, "Rib (the wall to run on)");
-            Seam(monolithBack, 490f, -16f, JPathY, 550f, -16f, JPathY, p);
-            Seam(monolithBack, 510f, -34f, JPathY, 580f, -34f, JPathY, p);
-            Seam(monolithBack, 510f, -34f, JPathY + 10f, 580f, -34f, JPathY + 10f, p);
-            Seam(monolithBack, 510f, -36f, JPathY + 10f, 580f, -36f, JPathY + 10f, p);
-            Animate(monolith, Vector3.zero, new Vector3(0f, 0f, -90f), Vector3.zero, Vector3.zero, 0.25f, 1.3f, HeavySafe(), 0.35f, 0.25f, p);
-            Animate(monolithBack, Vector3.zero, Vector3.zero, Vector3.zero, new Vector3(0f, 0f, -90f), 0.3f, 1.8f, Heavy(), 0.3f, 0.2f, p);
-
-            RealityChunk columns = Piece("E2 Columns Rise Out Of The Abyss [background]", stageE.transform, J(509f, 64f, 30f));
-            foreach (float s in new[] { 470f, 505f, 540f })
+            // The corridor floor, in three 50 m plates hinged on the left wall, swings down into the abyss behind you, one
+            // after another: keep moving. (At a steady 22 m/s you are 30+ m past each one when it goes.)
+            var floorBehind = new RealityChunk[3];
+            float[] collapseAt = { 1.9f, 4.2f, 6.6f };
+            for (int i = 0; i < 3; i++)
             {
-                Body(columns, s, s + 8f, 60f, 68f, -20f, 80f, p, "Column");
-                Seam(columns, s, 60f, 0f, s, 60f, 80f, p);
+                float s0 = i * 50f;
+                RealityChunk plate = Piece($"A{3 + i} Floor Collapses Behind You ({i + 1}/3) [don't stop]", stageA.transform, J(s0 + 25f, -14f, -1f));
+                Body(plate, s0, s0 + 50f, -14f, 13.9f, -1f, 0f, p);
+                OutlineFlat(plate, 0f, s0, s0 + 50f, -14f, 13.9f, p);
+                Animate(plate, Vector3.zero, Vector3.zero, JOffset(0f, 0f, -40f), new Vector3(90f, 0f, 0f), collapseAt[i], 1.2f, Collapse(), 0.4f, 0.08f, p);
+                floorBehind[i] = plate;
             }
-            Animate(columns, JOffset(0f, 0f, -120f), Vector3.zero, Vector3.zero, Vector3.zero, 0.6f, 1.8f, Rise(), 0.3f, 0f, p);
 
-            stageE.SetChunks(new[] { monolith, columns });
+            stageA.SetChunks(new[] { slabRight, slabLeft, floorBehind[0], floorBehind[1], floorBehind[2] });
 
-            // ---------------- F: escape along the wall. 18 m before the end of the floor.
-            RealityTransformSequence stageF = Stage("Stage F - Escape Along The Wall", section, J(550f, -26f, JPathY), 18f, new Vector3(40f, 50f, 6f));
+            // ---------------- B: the road ahead peels up into a wall. Fires at s 130.
+            RealityTransformSequence stageB = Stage("Stage B - The Road Becomes A Wall", section, J(175f, 0f, 0f), 45f, new Vector3(32f, 40f, 6f));
 
-            // 8 m under the wall run.
-            RealityChunk sweeper = Piece("F1 Slab Sweeps Beneath The Wall Run [near miss: below]", stageF.transform, J(562.5f, 0f, 9.5f));
-            Body(sweeper, 545f, 580f, -15f, 15f, 6f, 13f, p);
-            Seam(sweeper, 545f, -15f, 13f, 580f, -15f, 13f, p);
-            Seam(sweeper, 545f, 15f, 13f, 580f, 15f, 13f, p);
-            Animate(sweeper, JOffset(0f, -110f, 0f), Vector3.zero, JOffset(0f, 35f, 0f), Vector3.zero, 0.2f, 1.8f, AnimationCurve.EaseInOut(0f, 0f, 1f, 1f), 0f, 0f, p);
+            // 36 m of road, hinged along its left edge, swings up 90° and slams flat against the left wall (28 m tall). The
+            // floor is gone: run on it.
+            RealityChunk road = Piece("B1 The Road Peels Up Into A Wall [wall run]", stageB.transform, J(193f, -14f, 0f));
+            Body(road, 175f, 211f, -14f, 13.9f, -1f, 0f, p);
+            OutlineFlat(road, 0f, 175f, 211f, -14f, 13.9f, p);
+            Animate(road, Vector3.zero, Vector3.zero, Vector3.zero, new Vector3(-90f, 0f, 0f), 0.3f, 0.75f, HeavySafe(), 0.3f, 0.08f, p);
 
-            RealityChunk giantWall = Piece("F3 Giant Wall Rises Ahead On The Right [background]", stageF.transform, J(580f, 55f, 40f));
-            Body(giantWall, 520f, 640f, 52f, 58f, -20f, 100f, p);
-            OutlineSide(giantWall, 52f, 520f, 640f, -20f, 100f, p);
-            Animate(giantWall, JOffset(0f, 0f, -120f), Vector3.zero, Vector3.zero, Vector3.zero, 0.3f, 2.4f, HeavySafe(), 0.4f, 0.3f, p);
+            stageB.SetChunks(new[] { road });
 
-            stageF.SetChunks(new[] { sweeper, pathFolds, giantWall });
+            // ---------------- C: the corridor crushes shut. Fires at s 215.
+            RealityTransformSequence stageC = Stage("Stage C - The Corridor Crushes Shut", section, J(254f, 0f, 0f), 39f, new Vector3(32f, 50f, 6f));
 
-            // ---------------- G: the world closes behind you, as you pass the target.
-            RealityTransformSequence stageG = Stage("Stage G - The World Closes Behind You", section, J(598f, -20f, 30f), 6f, new Vector3(50f, 50f, 8f));
+            // Three 24 m segments, each closed by blocks sliding out of both walls to meet in the middle (16 m tall). Each
+            // segment shuts just after a 26 m/s runner clears it: boost. Caught between them, you're crushed.
+            var crusher = new RealityChunk[6];
+            float[] closeAt = { 0.77f, 1.73f, 2.69f };
+            for (int k = 0; k < 3; k++)
+            {
+                float s0 = 230f + 24f * k;
+                RealityChunk left = Piece($"C{2 * k + 1} Crusher {k + 1} From The Left [boost through]", stageC.transform, J(s0 + 12f, -7f, 8f));
+                Body(left, s0, s0 + 24f, -14f, 0f, 0f, 16f, p);
+                OutlineSide(left, 0f, s0, s0 + 24f, 0f, 16f, p);
+                Animate(left, JOffset(0f, -14f, 0f), Vector3.zero, Vector3.zero, Vector3.zero, closeAt[k], 0.9f, AnimationCurve.Linear(0f, 0f, 1f, 1f), 0.35f, 0.1f, p);
+                MakeHazard(left, false, p);
 
-            RealityChunk gate = Piece("G2 Gate Slams Shut Behind You [behind you]", stageG.transform, J(584f, -45f, 25f));
-            Body(gate, 582f, 586f, -75f, -15f, 0f, 50f, p);
-            OutlineSide(gate, -15f, 582f, 586f, 0f, 50f, p);
-            Animate(gate, JOffset(0f, -60f, 0f), Vector3.zero, Vector3.zero, Vector3.zero, 0.15f, 0.6f, Eruption(), 0.15f, 0.1f, p);
+                RealityChunk right = Piece($"C{2 * k + 2} Crusher {k + 1} From The Right [boost through]", stageC.transform, J(s0 + 12f, 7f, 8f));
+                Body(right, s0, s0 + 24f, 0f, 14f, 0f, 16f, p);
+                OutlineSide(right, 0f, s0, s0 + 24f, 0f, 16f, p);
+                Animate(right, JOffset(0f, 14f, 0f), Vector3.zero, Vector3.zero, Vector3.zero, closeAt[k], 0.9f, AnimationCurve.Linear(0f, 0f, 1f, 1f), 0.35f, 0.1f, p);
+                MakeHazard(right, false, p);
 
-            stageG.SetChunks(new[] { monolithBack, gate });
+                crusher[2 * k] = left;
+                crusher[2 * k + 1] = right;
+            }
+
+            stageC.SetChunks(crusher);
+
+            // ---------------- D: the bridge splits apart under you. Fires at s 305.
+            RealityTransformSequence stageD = Stage("Stage D - The Bridge Splits", section, J(330f, 0f, 0f), 25f, new Vector3(32f, 40f, 6f));
+
+            // The rest of the bridge breaks into three drifting pieces: 7 m gaps, zig-zagging, 2.5 m down then 2 m up.
+            var pieces = new RealityChunk[3];
+            Vector3[] drift = { JOffset(7f, -3f, 1.5f), JOffset(14f, 3f, -1f), JOffset(21f, -2f, 1f) };
+            for (int i = 0; i < 3; i++)
+            {
+                float s0 = 330f + 22f * i;
+                RealityChunk piece = Piece($"D{i + 1} Bridge Piece {i + 2} Drifts Away [jump]", stageD.transform, J(s0 + 11f, 0f, -1f));
+                Body(piece, s0, s0 + 22f, -6f, 6f, -2f, 0f, p);
+                OutlineFlat(piece, 0f, s0, s0 + 22f, -6f, 6f, p);
+                Animate(piece, Vector3.zero, Vector3.zero, drift[i], Vector3.zero, 0.35f, 1.3f, AnimationCurve.EaseInOut(0f, 0f, 1f, 1f), 0.3f, 0.06f, p);
+                pieces[i] = piece;
+            }
+
+            // A 14 m red wall waits just left of the third piece, flashing for 0.6 s, then sweeps across it: get past before
+            // it crosses (2.4-2.8 s after the stage starts), or after. It kills on contact.
+            RealityChunk sweeper = Piece("D4 Wall Sweeps Across The Bridge [LETHAL: time it]", stageD.transform, J(376f, 0f, 7f));
+            Body(sweeper, 372f, 380f, -3f, 3f, 0f, 14f, p);
+            OutlineEnd(sweeper, 372f, -3f, 3f, 0f, 14f, p);
+            Animate(sweeper, JOffset(0f, -22f, 0f), Vector3.zero, JOffset(0f, 40f, 0f), Vector3.zero, 2.12f, 1.2f, AnimationCurve.Linear(0f, 0f, 1f, 1f), 0.6f, 0f, p);
+            MakeHazard(sweeper, true, p);
+
+            stageD.SetChunks(new[] { pieces[0], pieces[1], pieces[2], sweeper });
+
+            // ---------------- E: the landing vanishes; the world swings in a new way. Fires at s 380.
+            RealityTransformSequence stageE = Stage("Stage E - The Landing Vanishes", section, J(417f, 0f, 0f), 37f, new Vector3(40f, 50f, 6f));
+
+            RealityChunk landing = Piece("E1 The Landing Ahead Drops Away", stageE.transform, J(460f, 0f, -4f));
+            Body(landing, 440f, 480f, -10f, 10f, -10f, 2f, p);
+            OutlineFlat(landing, 2f, 440f, 480f, -10f, 10f, p);
+            Animate(landing, Vector3.zero, Vector3.zero, JOffset(0f, 0f, -60f), new Vector3(0f, 0f, 20f), 0.15f, 0.9f, Collapse(), 0.15f, 0.15f, p);
+
+            // Two 37 m arms on hubs to the right swing down from vertical, each carrying a traversal target to its tip:
+            // target 1 out over the gap, target 2 further right. Chain them onto the new route.
+            RealityChunk armOne = Piece("E2 Arm Swings Target 1 Into Place [target]", stageE.transform, J(445f, 46f, 10f));
+            Body(armOne, 442f, 448f, 43f, 49f, 7f, 13f, p, "Hub");
+            Body(armOne, 443.5f, 446.5f, 10f, 46f, 8.5f, 11.5f, p, "Arm");
+            Seam(armOne, 443.5f, 10f, 11.5f, 443.5f, 46f, 11.5f, p);
+            Seam(armOne, 446.5f, 10f, 11.5f, 446.5f, 46f, 11.5f, p);
+            Target("Target 1 (carried by the arm)", armOne.transform, J(445f, 6f, 10f), p);
+            Animate(armOne, Vector3.zero, new Vector3(90f, 0f, 0f), Vector3.zero, Vector3.zero, 0.25f, 0.9f, HeavySafe(), 0.2f, 0.1f, p);
+
+            RealityChunk armTwo = Piece("E3 Arm Swings Target 2 Into Place [target]", stageE.transform, J(485f, 70f, 14f));
+            Body(armTwo, 482f, 488f, 67f, 73f, 11f, 17f, p, "Hub");
+            Body(armTwo, 483.5f, 486.5f, 34f, 70f, 12.5f, 15.5f, p, "Arm");
+            Seam(armTwo, 483.5f, 34f, 15.5f, 483.5f, 70f, 15.5f, p);
+            Seam(armTwo, 486.5f, 34f, 15.5f, 486.5f, 70f, 15.5f, p);
+            Target("Target 2 (carried by the arm)", armTwo.transform, J(485f, 30f, 14f), p);
+            Animate(armTwo, Vector3.zero, new Vector3(90f, 0f, 0f), Vector3.zero, Vector3.zero, 0.45f, 0.9f, HeavySafe(), 0.2f, 0.1f, p);
+
+            RealityChunk newRoute = Piece("E4 A New Route Rises From The Abyss (right) [land on it]", stageE.transform, J(535f, 48f, 19f));
+            Body(newRoute, 490f, 580f, 30f, 66f, 18f, 20f, p);
+            OutlineFlat(newRoute, 20f, 490f, 580f, 30f, 66f, p);
+            Animate(newRoute, JOffset(0f, 0f, -100f), Vector3.zero, Vector3.zero, Vector3.zero, 0.6f, 0.8f, Slide(), 0.3f, 0f, p);
+
+            stageE.SetChunks(new[] { landing, armOne, armTwo, newRoute });
+
+            // ---------------- F: the room rolls around you. Fires at s 574, at its door.
+            RealityTransformSequence stageF = Stage("Stage F - The Room Rolls", section, J(580f, 48f, 20f), 6f, new Vector3(44f, 40f, 6f));
+
+            // An 85 m room, 22 m inside both ways, rolls 90° around its long axis while you run through it: the left wall
+            // becomes the floor (you drop onto it), the floor becomes the right wall, the ceiling the left wall. The big
+            // window in the left wall becomes a 30 m pit in the new floor: wall run across on either side.
+            RealityChunk room = Piece("F1 The Room Rolls 90° Around You [wall run the pit]", stageF.transform, J(622.5f, 52f, 31f));
+            Body(room, 580f, 665f, 39f, 65f, 18f, 20f, p, "Floor");
+            Body(room, 580f, 665f, 39f, 65f, 42f, 44f, p, "Ceiling");
+            Body(room, 580f, 628f, 39f, 41f, 20f, 42f, p, "Left Wall");
+            Body(room, 658f, 665f, 39f, 41f, 20f, 42f, p, "Left Wall");
+            Body(room, 580f, 665f, 63f, 65f, 20f, 42f, p, "Right Wall");
+            Seam(room, 580f, 41f, 20f, 665f, 41f, 20f, p);
+            Seam(room, 580f, 63f, 20f, 665f, 63f, 20f, p);
+            Seam(room, 580f, 41f, 42f, 665f, 41f, 42f, p);
+            Seam(room, 580f, 63f, 42f, 665f, 63f, 42f, p);
+            Seam(room, 628f, 41f, 20f, 628f, 41f, 42f, p);
+            Seam(room, 658f, 41f, 20f, 658f, 41f, 42f, p);
+            Animate(room, Vector3.zero, Vector3.zero, Vector3.zero, new Vector3(-90f, 0f, 0f), 0.2f, 0.85f, HeavySafe(), 0.2f, 0.1f, p);
+
+            stageF.SetChunks(new[] { room });
+
+            // ---------------- G: the plaza floor opens; the world rebuilds under you as you fall. Fires at s 712.
+            RealityTransformSequence stageG = Stage("Stage G - The Floor Opens", section, J(715f, 52f, 20f), 3f, new Vector3(48f, 30f, 4f));
+
+            RealityChunk floorLeft = Piece("G1 Plaza Floor Opens (left) [fall]", stageG.transform, J(740f, 30f, 19f));
+            Body(floorLeft, 715f, 765f, 30f, 51.95f, 19f, 20f, p);
+            OutlineFlat(floorLeft, 20f, 715f, 765f, 30f, 51.95f, p);
+            Animate(floorLeft, Vector3.zero, Vector3.zero, Vector3.zero, new Vector3(90f, 0f, 0f), 0.2f, 0.5f, Retract(), 0.2f, 0.06f, p);
+
+            RealityChunk floorRight = Piece("G2 Plaza Floor Opens (right) [fall]", stageG.transform, J(740f, 74f, 19f));
+            Body(floorRight, 715f, 765f, 52.05f, 74f, 19f, 20f, p);
+            OutlineFlat(floorRight, 20f, 715f, 765f, 52.05f, 74f, p);
+            Animate(floorRight, Vector3.zero, Vector3.zero, Vector3.zero, new Vector3(-90f, 0f, 0f), 0.2f, 0.5f, Retract(), 0.2f, 0.06f, p);
+
+            // Debris pulled together out of the abyss into a 60 x 36 m landing, 36 m down, before you get there. Stage H drops
+            // it again through the inner pieces.
+            RealityChunk debrisLeft = Piece("G3 Debris Assembles Beneath You (left) [land]", stageG.transform, J(760f, 43f, -18f));
+            RealityChunk debrisLeftFalls = Piece("H1 (stage H) Landing Falls Away Behind You (left)", debrisLeft.transform, J(760f, 43f, -18f));
+            Body(debrisLeftFalls, 730f, 790f, 34f, 52f, -20f, -16f, p);
+            OutlineFlat(debrisLeftFalls, -16f, 730f, 790f, 34f, 52f, p);
+            Animate(debrisLeft, JOffset(0f, -30f, -40f), new Vector3(0f, 0f, 35f), Vector3.zero, Vector3.zero, 0.25f, 0.7f, SwingUp(), 0f, 0f, p);
+            Animate(debrisLeftFalls, Vector3.zero, Vector3.zero, JOffset(0f, 0f, -60f), new Vector3(0f, 0f, -20f), 0.15f, 1f, Collapse(), 0.15f, 0.08f, p);
+
+            RealityChunk debrisRight = Piece("G4 Debris Assembles Beneath You (right) [land]", stageG.transform, J(760f, 61f, -18f));
+            RealityChunk debrisRightFalls = Piece("H2 (stage H) Landing Falls Away Behind You (right)", debrisRight.transform, J(760f, 61f, -18f));
+            Body(debrisRightFalls, 730f, 790f, 52f, 70f, -20f, -16f, p);
+            OutlineFlat(debrisRightFalls, -16f, 730f, 790f, 52f, 70f, p);
+            Animate(debrisRight, JOffset(0f, 30f, -50f), new Vector3(-30f, 0f, 0f), Vector3.zero, Vector3.zero, 0.3f, 0.7f, SwingUp(), 0f, 0f, p);
+            Animate(debrisRightFalls, Vector3.zero, Vector3.zero, JOffset(0f, 0f, -60f), new Vector3(0f, 0f, -20f), 0.2f, 1f, Collapse(), 0.15f, 0.08f, p);
+
+            // Glowing red high above the far end of the landing from the moment the floor opens, then slams down onto it just
+            // ahead of where you land: a 12 m block in the middle of your run. It kills while it falls.
+            RealityChunk crash = Piece("G5 Debris Crashes Onto The Landing [LETHAL: steer around]", stageG.transform, J(773f, 52f, -11f));
+            RealityChunk crashFalls = Piece("H3 (stage H) Crashed Debris Falls Away", crash.transform, J(773f, 52f, -11f));
+            Body(crashFalls, 768f, 778f, 46f, 58f, -16f, -6f, p);
+            OutlineFlat(crashFalls, -6f, 768f, 778f, 46f, 58f, p);
+            Animate(crash, JOffset(0f, 0f, 86f), Vector3.zero, Vector3.zero, Vector3.zero, 0.9f, 0.7f, Slam(), 0.5f, 0.2f, p);
+            Animate(crashFalls, Vector3.zero, Vector3.zero, JOffset(0f, 0f, -70f), Vector3.zero, 0.15f, 1f, Collapse(), 0.15f, 0.08f, p);
+            MakeHazard(crash, true, p);
+
+            RealityChunk fallingPast = Piece("G6 Debris Falls Past You [near miss]", stageG.transform, J(735f, 84f, 40f));
+            Body(fallingPast, 730f, 740f, 80f, 88f, 35f, 45f, p);
+            OutlineFlat(fallingPast, 35f, 730f, 740f, 80f, 88f, p);
+            Animate(fallingPast, Vector3.zero, Vector3.zero, JOffset(0f, 0f, -110f), Vector3.zero, 0.35f, 1.4f, Collapse(), 0f, 0f, p);
+            MakeHazard(fallingPast, false, p);
+
+            stageG.SetChunks(new[] { floorLeft, floorRight, debrisLeft, debrisRight, crash, fallingPast });
+
+            // ---------------- H: the landing falls away behind you as you jump to the finish. Fires at s 792.
+            RealityTransformSequence stageH = Stage("Stage H - Escape", section, J(800f, 52f, -16f), 8f, new Vector3(48f, 40f, 6f));
+            stageH.SetChunks(new[] { debrisLeftFalls, debrisRightFalls, crashFalls });
         }
 
         // ------------------------------------------------------------------ J helpers
@@ -381,6 +349,21 @@ namespace ProjectVelocity.EditorTools
                 JBox(name, parent, s0, s1, 14f, 20f, y0, y1, p.Block);
         }
 
+        /// <summary>A respawn zone over a stretch of J (s, l ranges; 350 m tall), restarting at <paramref name="restart"/>.</summary>
+        static void Zone(string name, Transform parent, float s0, float s1, float l0, float l1, Transform restart)
+        {
+            const float yMin = -100f;
+            const float yMax = 250f;
+            Vector3 a = J(s0, l0, yMin);
+            Vector3 b = J(s1, l1, yMax);
+            var go = new GameObject(name);
+            go.transform.SetParent(parent, false);
+            go.transform.position = (a + b) * 0.5f;
+            var zone = go.AddComponent<RespawnZone>();
+            zone.Size = new Vector3(Mathf.Abs(b.x - a.x), yMax - yMin, Mathf.Abs(b.z - a.z));
+            zone.RestartPoint = restart;
+        }
+
         /// <summary>
         /// One stage: a sequence and the trigger that starts it. The trigger sits at <paramref name="timedAt"/>, the point the
         /// stage is timed against, and its volume <paramref name="lead"/> metres back along the route
@@ -410,7 +393,7 @@ namespace ProjectVelocity.EditorTools
             return go.AddComponent<RealityChunk>();
         }
 
-        /// <summary>Solid part of a reality piece (with collider), between two corners in J's route frame.</summary>
+        /// <summary>Solid part of a reality piece (with box collider), between two corners in J's route frame.</summary>
         static void Body(RealityChunk piece, float s0, float s1, float l0, float l1, float y0, float y1, Palette p, string name = "Body")
         {
             JBox(name, piece.transform, s0, s1, l0, l1, y0, y1, p.RealityBody);
@@ -474,6 +457,28 @@ namespace ProjectVelocity.EditorTools
             piece.SetLook(seams, p.RealityDormant, p.RealityWarning, p.RealityShifting, p.RealitySettled);
         }
 
+        /// <summary>
+        /// Gives a piece (and any piece inside it) the red danger look: dark red body, red seams that flash orange before it
+        /// moves. <paramref name="lethal"/>: contact while it moves resets the player. (Anything that pins you crushes you,
+        /// lethal or not.) Call after <see cref="Animate"/>.
+        /// </summary>
+        static void MakeHazard(RealityChunk piece, bool lethal, Palette p)
+        {
+            piece.IsLethal = lethal;
+            foreach (Renderer r in piece.GetComponentsInChildren<Renderer>(true))
+            {
+                if (r.sharedMaterial == p.RealityBody)
+                    r.sharedMaterial = p.HazardBody;
+                else if (r.sharedMaterial == p.RealityDormant)
+                    r.sharedMaterial = p.HazardDormant;
+            }
+            foreach (RealityChunk chunk in piece.GetComponentsInChildren<RealityChunk>(true))
+            {
+                Renderer[] seams = chunk.GetComponentsInChildren<Renderer>(true).Where(r => r.sharedMaterial == p.HazardDormant).ToArray();
+                chunk.SetLook(seams, p.HazardDormant, p.HazardWarning, p.HazardMoving, p.HazardDormant);
+            }
+        }
+
         // ------------------------------------------------------------------ Motion personalities (pose 0 → 1 over time 0 → 1)
 
         static Keyframe K(float time, float value, float inTangent, float outTangent)
@@ -487,25 +492,13 @@ namespace ProjectVelocity.EditorTools
             return new AnimationCurve(K(0f, 0f, 0f, 4.5f), K(0.42f, 1.05f, 0f, 0f), K(0.7f, 0.985f, 0f, 0f), K(1f, 1f, 0f, 0f));
         }
 
-        /// <summary>Violent rise: shoots up, a small overshoot, settles.</summary>
-        static AnimationCurve Rise()
-        {
-            return new AnimationCurve(K(0f, 0f, 0f, 3.2f), K(0.6f, 1.03f, 0f, 0f), K(1f, 1f, 0f, 0f));
-        }
-
         /// <summary>Slam: falls faster and faster, stops dead, kicks back a little and settles.</summary>
         static AnimationCurve Slam()
         {
             return new AnimationCurve(K(0f, 0f, 0f, 0.3f), K(0.72f, 1f, 2.8f, 0f), K(0.84f, 0.985f, 0f, 0f), K(1f, 1f, 0f, 0f));
         }
 
-        /// <summary>Heavy turn: slow to start, gathers speed, a weighted stop that sways just past the end.</summary>
-        static AnimationCurve Heavy()
-        {
-            return new AnimationCurve(K(0f, 0f, 0f, 0f), K(0.62f, 0.72f, 2.3f, 2.3f), K(0.88f, 1.02f, 0f, 0f), K(1f, 1f, 0f, 0f));
-        }
-
-        /// <summary>Heavy turn without the sway, for surfaces you may already be on.</summary>
+        /// <summary>Heavy turn without sway: slow to start, gathers speed, firm stop (for surfaces you may be on).</summary>
         static AnimationCurve HeavySafe()
         {
             return new AnimationCurve(K(0f, 0f, 0f, 0f), K(0.7f, 0.8f, 1.9f, 1.9f), K(1f, 1f, 0.2f, 0f));
@@ -517,19 +510,13 @@ namespace ProjectVelocity.EditorTools
             return new AnimationCurve(K(0f, 0f, 0f, 0f), K(0.4f, 0.1f, 0.6f, 0.6f), K(1f, 1f, 2.6f, 0f));
         }
 
-        /// <summary>Sweep: a big swing that runs a little past the end and comes back.</summary>
-        static AnimationCurve Sweep()
-        {
-            return new AnimationCurve(K(0f, 0f, 0f, 0f), K(0.75f, 1.03f, 1f, 0f), K(1f, 1f, 0f, 0f));
-        }
-
         /// <summary>Swing up: fast at first, easing into a firm stop with no bounce (you land on it next).</summary>
         static AnimationCurve SwingUp()
         {
             return new AnimationCurve(K(0f, 0f, 0f, 2f), K(1f, 1f, 0f, 0f));
         }
 
-        /// <summary>Slide: shoots across, easing into a firm stop with no bounce.</summary>
+        /// <summary>Slide: shoots into place, easing into a firm stop with no bounce.</summary>
         static AnimationCurve Slide()
         {
             return new AnimationCurve(K(0f, 0f, 0f, 2.2f), K(1f, 1f, 0f, 0f));
