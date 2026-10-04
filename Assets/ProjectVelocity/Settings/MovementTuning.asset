@@ -1,0 +1,44 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4f2b2c3565134922973e47fb76f35e25, type: 3}
+  m_Name: MovementTuning
+  m_EditorClassIdentifier: ProjectVelocity.Runtime::ProjectVelocity.MovementTuning
+  maxGroundSpeed: 22
+  groundAcceleration: 120
+  groundDeceleration: 80
+  turnResponsiveness: 900
+  reversalBrake: 200
+  groundMomentumDecay: 18
+  jumpHeight: 3.2
+  gravity: 45
+  fallGravityMultiplier: 1.5
+  jumpReleaseGravityMultiplier: 2.5
+  maxFallSpeed: 55
+  coyoteTime: 0.12
+  jumpBufferTime: 0.15
+  airAcceleration: 60
+  airTurnResponsiveness: 360
+  airBrake: 45
+  maxAirSpeed: 22
+  airMomentumDecay: 5
+  boostSpeed: 52
+  boostDuration: 0.18
+  boostCooldown: 0.45
+  boostExitSpeed: 32
+  boostSteering: 240
+  maxAirBoosts: 1
+  airBoostHoldsAltitude: 1
+  maxWalkableSlope: 50
+  groundSnapDistance: 0.6
+  groundLayers:
+    serializedVersion: 2
+    m_Bits: 4294967291
