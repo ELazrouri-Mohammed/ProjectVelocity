@@ -37,6 +37,21 @@ namespace ProjectVelocity
         const float ClimbTopOutUpSpeed = 6f;
         const float ClimbTopOutForwardSpeed = 5f;
 
+        // Wall jump assist (see TryAssistWallJump).
+        // Aim the head this far below a lower wall's top edge (m).
+        const float AssistTopMargin = 0.5f;
+        // Vertical spacing of the rays that look for the destination wall, and how far below the feet they reach (m).
+        const float AssistScanStep = 1f;
+        const float AssistScanDepth = 6f;
+        // You must be steering, and heading, at least ~20° into the destination wall.
+        const float AssistAimDot = 0.34f;
+        // A top at least this deep (m) is somewhere to land rather than a wall to sail past: no assist.
+        const float AssistLandingDepth = 2f;
+        // Hits within this distance (m) of each other belong to the same wall face.
+        const float AssistFaceTolerance = 0.5f;
+        // You may reach the wall up to this much later than the straight-line estimate, since turning takes time.
+        const float AssistTimeSlack = 1.35f;
+
         enum WallExit
         {
             Lost,
@@ -56,6 +71,10 @@ namespace ProjectVelocity
         public Vector3 WallNormal => wallRunning ? wallRunNormal : Vector3.zero;
         /// <summary>Seconds left before the current wall run runs out.</summary>
         public float WallRunTimeRemaining => wallRunning ? Mathf.Max(0f, Settings.maxWallRunDuration - wallRunTime) : 0f;
+        /// <summary>Upward speed of the last wall jump (m/s), negative before the first one. Debug readout.</summary>
+        public float LastWallJumpUpSpeed => lastWallJumpUpSpeed;
+        /// <summary>Whether the wall jump assist lowered the last wall jump to reach a lower wall. Debug readout.</summary>
+        public bool LastWallJumpAssisted => lastWallJumpAssisted;
 
         bool wallRunning;
         // The wall being run on, or the last one this airtime (forgotten on landing).
@@ -71,6 +90,8 @@ namespace ProjectVelocity
         float wallJumpCoyoteTimer;
         float wallJumpCommitTimer;
         float wallMaxNormalY;
+        float lastWallJumpUpSpeed = -1f;
+        bool lastWallJumpAssisted;
 
         // Collected while the controller moves, used right after.
         Vector3 preMovePlanarVelocity;
@@ -176,7 +197,7 @@ namespace ProjectVelocity
             return -wallRunNormal * Mathf.Min(wallGap, WallSnapSpeed * dt);
         }
 
-        void WallJump(MovementTuning t)
+        void WallJump(MovementTuning t, Vector3 wishDir, float wishAmount)
         {
             Vector3 n = wallRunNormal;
             if (wallRunning)
@@ -188,7 +209,11 @@ namespace ProjectVelocity
             float away = Vector3.Dot(planarVelocity, n);
             Vector3 along = planarVelocity - n * away;
             planarVelocity = along * t.wallJumpMomentumKeep + n * Mathf.Max(away, t.wallJumpAwayForce);
-            verticalSpeed = Mathf.Max(verticalSpeed, t.wallJumpUpForce);
+
+            float upSpeed = Mathf.Max(verticalSpeed, t.wallJumpUpForce);
+            lastWallJumpAssisted = TryAssistWallJump(t, n, wishDir, wishAmount, ref upSpeed);
+            lastWallJumpUpSpeed = upSpeed;
+            verticalSpeed = upSpeed;
 
             jumpBufferTimer = 0f;
             coyoteTimer = 0f;
@@ -197,6 +222,141 @@ namespace ProjectVelocity
             boostHoldsAltitude = false;
             wallJumpCommitTimer = t.wallJumpCommitTime;
             WallJumped?.Invoke();
+        }
+
+        /// <summary>
+        /// Wall jump assist. When you steer toward a nearby wall whose top edge the normal jump would carry your head over,
+        /// lowers the upward launch speed just enough to arrive at body height on its face, so the chain connects.
+        /// It only ever lowers the upward speed: direction, horizontal speed and steering are untouched, nothing pulls
+        /// you toward the wall, and when the normal jump already connects (or can't be helped) nothing changes.
+        /// Runs once per wall jump, only while steering: about 15-20 raycasts on that one frame.
+        /// </summary>
+        bool TryAssistWallJump(MovementTuning t, Vector3 fromNormal, Vector3 wishDir, float wishAmount, ref float upSpeed)
+        {
+            float range = t.wallJumpAssistRange;
+            float speed = planarVelocity.magnitude;
+            if (range <= 0f || wishAmount <= WallReleaseMinInput || speed < StartMovingSpeed || upSpeed <= 0f)
+                return false;
+
+            // Where you'll head: your steering if it points further from the old wall than the kick does, otherwise the
+            // kick itself (turning back toward the old wall is damped right after a wall jump).
+            Vector3 launchDir = planarVelocity / speed;
+            Vector3 travelDir = Vector3.Dot(wishDir, fromNormal) >= Vector3.Dot(launchDir, fromNormal) ? wishDir : launchDir;
+
+            GetWallProbeOrigins(out Vector3 upper, out Vector3 lower);
+            float feet = lower.y - controller.radius;
+            float upperOffset = upper.y - feet;
+            float lowerOffset = lower.y - feet;
+            float gUp = t.gravity;
+            float gDown = t.gravity * t.fallGravityMultiplier;
+
+            // The nearest wall ahead, scanning down from the highest your head could get to.
+            float scanTop = upper.y + upSpeed * upSpeed / (2f * gUp);
+            int rayCount = Mathf.FloorToInt((scanTop - (feet - AssistScanDepth)) / AssistScanStep) + 1;
+            bool found = false;
+            bool reachesAboveJump = false;
+            RaycastHit face = default;
+            float faceY = 0f;
+            for (int i = 0; i < rayCount; i++)
+            {
+                float y = scanTop - i * AssistScanStep;
+                if (!CastWall(t, new Vector3(upper.x, y, upper.z), travelDir, range, out RaycastHit hit))
+                    continue;
+                if (found && hit.distance > face.distance - AssistFaceTolerance)
+                    continue; // the same wall lower down, or one behind it
+                found = true;
+                face = hit;
+                faceY = y;
+                reachesAboveJump = i == 0;
+            }
+            // Nothing ahead, or a wall too tall to sail over: the normal jump is right.
+            if (!found || reachesAboveJump)
+                return false;
+
+            Vector3 n = Flatten(face.normal);
+            if (-Vector3.Dot(travelDir, n) < AssistAimDot || -Vector3.Dot(wishDir, n) < AssistAimDot || IsLastWall(face.collider, n))
+                return false;
+
+            // Its top edge lies between the highest ray that hit it and the one above.
+            float top = faceY;
+            Vector3 aboveTop = face.point - n * 0.05f + Vector3.up * AssistScanStep;
+            if (Physics.Raycast(aboveTop, Vector3.down, out RaycastHit topHit, AssistScanStep + 0.05f, t.wallRunLayers,
+                    QueryTriggerInteraction.Ignore) && topHit.normal.y > 0.5f)
+                top = Mathf.Max(faceY, topHit.point.y);
+
+            // A deep top is somewhere to land on, not a wall to sail past: leave the jump alone.
+            Vector3 behindTop = face.point - n * AssistLandingDepth;
+            behindTop.y = top + 0.5f;
+            if (Physics.Raycast(behindTop, Vector3.down, out RaycastHit roof, 1.25f, t.groundLayers, QueryTriggerInteraction.Ignore) &&
+                roof.normal.y >= walkableNormalY)
+                return false;
+
+            // When you'd reach it (straight-line estimate, up to AssistTimeSlack later while turning).
+            float travel = face.distance - (controller.radius + controller.skinWidth) / -Vector3.Dot(travelDir, n);
+            if (travel <= 0f)
+                return false;
+            float arriveSoon = travel / speed;
+            float arriveLate = arriveSoon * AssistTimeSlack;
+
+            // Aim the head just under the top edge. Only ever lower the launch, and only when that can work.
+            float targetRise = top - AssistTopMargin - upperOffset - feet;
+            if (HighestRise(upSpeed, arriveSoon, arriveLate, gUp, gDown) <= targetRise)
+                return false; // the normal jump already arrives below the edge
+            if (HighestRise(0f, arriveSoon, arriveLate, gUp, gDown) > targetRise)
+                return false; // too close and too low to reach even with a flat jump
+
+            // Highest launch that still keeps the head under the edge on arrival (the gentlest change).
+            float low = 0f;
+            float high = upSpeed;
+            for (int i = 0; i < 16; i++)
+            {
+                float mid = 0.5f * (low + high);
+                if (HighestRise(mid, arriveSoon, arriveLate, gUp, gDown) > targetRise)
+                    high = mid;
+                else
+                    low = mid;
+            }
+
+            // Only if the wall really spans you at the arrival heights, and you could catch it there (not just above the ground).
+            float lowestRise = Mathf.Min(Rise(low, arriveSoon, gUp, gDown), Rise(low, arriveLate, gUp, gDown));
+            if (!IsAssistFaceAt(t, upper, feet + targetRise + upperOffset, travelDir, face, n) ||
+                !IsAssistFaceAt(t, upper, feet + lowestRise + lowerOffset, travelDir, face, n))
+                return false;
+            Vector3 catchPoint = face.point + n * (controller.radius + controller.skinWidth);
+            catchPoint.y = feet + lowestRise + lowerOffset;
+            if (Physics.Raycast(catchPoint, Vector3.down, controller.radius + t.wallMinHeight, t.groundLayers, QueryTriggerInteraction.Ignore))
+                return false;
+
+            upSpeed = low;
+            return true;
+        }
+
+        bool IsAssistFaceAt(MovementTuning t, Vector3 upper, float height, Vector3 direction, RaycastHit face, Vector3 faceNormal)
+        {
+            return CastWall(t, new Vector3(upper.x, height, upper.z), direction, t.wallJumpAssistRange, out RaycastHit hit) &&
+                   Vector3.Dot(Flatten(hit.normal), faceNormal) > SameWallDot &&
+                   Mathf.Abs(hit.distance - face.distance) < AssistFaceTolerance;
+        }
+
+        /// <summary>Height gained after <paramref name="time"/> seconds when launched upward at <paramref name="v0"/> (air gravity, faster when falling).</summary>
+        static float Rise(float v0, float time, float gUp, float gDown)
+        {
+            if (v0 <= 0f)
+                return v0 * time - 0.5f * gDown * time * time;
+            float apexTime = v0 / gUp;
+            if (time <= apexTime)
+                return v0 * time - 0.5f * gUp * time * time;
+            float fall = time - apexTime;
+            return 0.5f * v0 * apexTime - 0.5f * gDown * fall * fall;
+        }
+
+        /// <summary>Highest point of the jump arc between two times.</summary>
+        static float HighestRise(float v0, float from, float to, float gUp, float gDown)
+        {
+            float apexTime = v0 > 0f ? v0 / gUp : 0f;
+            if (apexTime > from && apexTime < to)
+                return Rise(v0, apexTime, gUp, gDown);
+            return Mathf.Max(Rise(v0, from, gUp, gDown), Rise(v0, to, gUp, gDown));
         }
 
         /// <summary>

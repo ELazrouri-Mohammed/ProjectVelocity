@@ -162,7 +162,7 @@ namespace ProjectVelocity
             }
             else if (jumpBufferTimer > 0f && CanWallJump)
             {
-                WallJump(t);
+                WallJump(t, wishDir, wishAmount);
                 jumpedThisFrame = true;
             }
 

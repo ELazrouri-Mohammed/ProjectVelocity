@@ -47,16 +47,19 @@ namespace ProjectVelocity
                 _ => "AIR",
             };
             string boost = motor.BoostCooldownRemaining > 0f ? $"{motor.BoostCooldownRemaining:0.00}s" : "ready";
+            string wallJump = motor.LastWallJumpUpSpeed < 0f ? "-"
+                : $"up {motor.LastWallJumpUpSpeed:0.0} m/s" + (motor.LastWallJumpAssisted ? "  (assisted: lowered to reach a lower wall)" : "");
             float fps = smoothedFrameTime > 0f ? 1f / smoothedFrameTime : 0f;
 
             string stats =
                 $"Speed  {speed:0.0} m/s  ({speed * 3.6f:0} km/h)   vertical {motor.Velocity.y:+0.0;-0.0;0.0}\n" +
                 $"State  {state}\n" +
                 $"Boost  {boost}   air boosts left {motor.AirBoostsRemaining}\n" +
+                $"Last wall jump  {wallJump}\n" +
                 $"FPS    {fps:0}";
 
             float lineHeight = style.fontSize * 1.5f;
-            DrawShadowed(new Rect(16f, 12f, Screen.width - 32f, lineHeight * 4.5f), stats);
+            DrawShadowed(new Rect(16f, 12f, Screen.width - 32f, lineHeight * 5.5f), stats);
 
             if (showControls)
             {

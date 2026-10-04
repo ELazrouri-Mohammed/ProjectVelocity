@@ -63,6 +63,7 @@ MonoBehaviour:
   wallJumpMomentumKeep: 1
   wallJumpCommitTime: 0.3
   wallJumpCoyoteTime: 0.2
+  wallJumpAssistRange: 16
   wallDetectionDistance: 0.6
   maxWallTilt: 20
   wallMinHeight: 1

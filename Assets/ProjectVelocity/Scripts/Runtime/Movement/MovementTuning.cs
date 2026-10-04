@@ -165,6 +165,9 @@ namespace ProjectVelocity
         [Tooltip("Grace time (s) after leaving a wall during which Jump still does a wall jump.")]
         [Min(0f)] public float wallJumpCoyoteTime = 0.2f;
 
+        [Tooltip("Wall jump assist: how far ahead (m, along your travel direction) a wall jump looks for a wall you're steering toward. If the normal jump would carry you over that wall's top, the upward launch is lowered just enough to reach its face. Never raises the jump or changes direction or speed. 0 = off.")]
+        [Min(0f)] public float wallJumpAssistRange = 16f;
+
         [Header("Wall Detection")]
         [Tooltip("How far beyond the body (m) walls are noticed. Larger catches walls earlier at speed; too large feels magnetic.")]
         [Min(0f)] public float wallDetectionDistance = 0.6f;
