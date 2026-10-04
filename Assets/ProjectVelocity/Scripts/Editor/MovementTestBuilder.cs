@@ -28,6 +28,12 @@ namespace ProjectVelocity.EditorTools
         static readonly Vector3 SpawnPoint = new Vector3(0f, 0.1f, 0f);
         static readonly Color SkyColor = new Color(0.70f, 0.77f, 0.85f);
 
+        // Placeholder traversal target: a glowing orb (diameter, m) inside a camera-facing ring (radius, m).
+        const float TargetCoreSize = 1.6f;
+        const float TargetRingRadius = 1.45f;
+        // Extra Upward Bias for the targets that redirect you upward (added to Target Upward Bias in Movement Tuning).
+        const float UpwardTargetBias = 0.35f;
+
         [MenuItem("Tools/Project Velocity/Build Movement Test", priority = 0)]
         public static void BuildFromMenu()
         {
@@ -87,6 +93,7 @@ namespace ProjectVelocity.EditorTools
             var motor = player.GetComponent<VelocityMotor>();
             VelocityCamera cameraRig = BuildCamera(player, motor, cameraTuning);
             player.GetComponent<VelocityPlayerController>().CameraRig = cameraRig;
+            player.GetComponent<TraversalTargeting>().Viewpoint = cameraRig.transform;
 
             EditorSceneManager.SaveScene(scene, ScenePath);
             AddSceneToBuildSettings();
@@ -95,7 +102,9 @@ namespace ProjectVelocity.EditorTools
             Selection.activeGameObject = player;
             Debug.Log($"[Project Velocity] Movement test built at {ScenePath}. Press Play to test. " +
                       "The wall traversal section is behind the spawn: turn around and run south. " +
-                      "Tune movement on the Player (Velocity Motor) and camera on the Main Camera (Velocity Camera).");
+                      "The traversal target section is behind the spawn to the left: turn around and run south-east; " +
+                      "E launches you through the selected (pink) target. " +
+                      "Tune movement and targets on the Player (Velocity Motor) and camera on the Main Camera (Velocity Camera).");
         }
 
         // ------------------------------------------------------------------ Playground
@@ -189,6 +198,7 @@ namespace ProjectVelocity.EditorTools
                 Block("Support", elevated, support.x, support.z, 1.2f, 1.2f, support.y, p.Pillar);
 
             BuildWallSection(root, p);
+            BuildTargetSection(root, p);
         }
 
         /// <summary>
@@ -246,6 +256,93 @@ namespace ProjectVelocity.EditorTools
             Slab("Top Platform (6 m)", ascending, -91f, -79f, -237f, -212f, 6f, p.Elevated);
             Block("Support", ascending, -85f, -224.5f, 1.2f, 1.2f, 5f, p.Pillar);
             Ramp("Ramp Down", ascending, new Vector3(-85f, 0f, -253f), 0f, 12f, 16f, 6f, p.Ramp);
+        }
+
+        /// <summary>
+        /// H: traversal targets, behind the spawn to the left (turn around and run south-east). Three lanes, each starting at a
+        /// pair of red gate markers at z = -20, then an open field of targets on extra ground east of the main slab.
+        /// Violet orbs are traversal targets: the selected one turns pink and pulses, and E launches you through it.
+        /// Gaps fall to the ground, never off the level.
+        /// </summary>
+        static void BuildTargetSection(Transform root, Palette p)
+        {
+            Transform section = Group("H - Traversal Targets", root);
+
+            // Extra ground east of the main slab, for the full-chain lane and the open field.
+            Box("Ground (target field)", section, 130f, 260f, -1f, 0f, -350f, -10f, p.Floor);
+
+            float[] laneCentres = { 64f, 104f, 160f };
+            foreach (float x in laneCentres)
+            {
+                Pillar(section, new Vector3(x - 8f, 0f, -20f), 1f, 6f, p.Marker);
+                Pillar(section, new Vector3(x + 8f, 0f, -20f), 1f, 6f, p.Marker);
+            }
+
+            // H1: the basics on a 4 m deck. One target over a 34 m gap (too far for jump + boost), two targets in a row over a
+            // 60 m gap (the first alone falls short), then a target that redirects you upward onto a 14 m ledge.
+            Transform basics = Group("H1 - Target Basics", section);
+            Ramp("Ramp Up (4 m)", basics, new Vector3(64f, 0f, -24f), 180f, 10f, 16f, 4f, p.Ramp);
+            Box("Runway (4 m)", basics, 59f, 69f, 0f, 4f, -80f, -40f, p.Block);
+            Target("Target - Over The Gap", basics, new Vector3(64f, 8f, -90f), p);
+            Box("Landing 1 (34 m gap)", basics, 59f, 69f, 0f, 4f, -165f, -114f, p.Block);
+            Target("Target - Sequence 1", basics, new Vector3(64f, 8f, -172f), p);
+            Target("Target - Sequence 2", basics, new Vector3(64f, 9f, -200f), p);
+            Box("Landing 2 (60 m gap - two targets)", basics, 59f, 69f, 0f, 4f, -305f, -225f, p.Block);
+            Target("Target - Upward", basics, new Vector3(64f, 6f, -282f), p, UpwardTargetBias);
+            Box("High Ledge (14 m)", basics, 59f, 69f, 0f, 14f, -342f, -305f, p.Elevated);
+
+            // H2: run on the wall, wall jump off it, and the target out over the gap carries you onto the 6 m landing.
+            Transform wallJump = Group("H2 - Wall Jump Into Target", section);
+            Box("Wall (0-12 m)", wallJump, 113f, 114f, 0f, 12f, -95f, -40f, p.Wall);
+            Target("Target - After Wall Jump", wallJump, new Vector3(100f, 9f, -115f), p);
+            Box("Landing (6 m)", wallJump, 78f, 118f, 0f, 6f, -185f, -132f, p.Block);
+
+            // H3: the full chain. Kick ramp → jump → boost (the wall floats 4 m up, too high without the boost) → wall run →
+            // wall jump → target → target → land on the 7 m finish. Skip the second target and you fall short.
+            Transform chain = Group("H3 - Full Chain", section);
+            Ramp("Takeoff Ramp", chain, new Vector3(160f, 0f, -28f), 180f, 8f, 8f, 2f, p.Ramp);
+            Box("Wall (4-14 m)", chain, 167f, 168f, 4f, 14f, -98f, -58f, p.Wall);
+            Target("Target - Chain 1", chain, new Vector3(158f, 10f, -120f), p);
+            Target("Target - Chain 2", chain, new Vector3(154f, 11f, -148f), p);
+            Box("Finish (7 m)", chain, 130f, 172f, 0f, 7f, -220f, -162f, p.Elevated);
+
+            // H4: open field for free experimenting. Staggered rows 26 m apart at 6-14 m (every target is within reach of
+            // the next), a few that redirect upward, and two walls to chain off.
+            Transform field = Group("H4 - Open Target Field", section);
+            for (int row = 0; row < 12; row++)
+            {
+                float[] columns = row % 2 == 0 ? new[] { 190f, 218f, 246f } : new[] { 204f, 232f };
+                for (int col = 0; col < columns.Length; col++)
+                {
+                    float height = 6f + (row * 5 + col * 3) % 9;
+                    bool upward = (row * 3 + col) % 5 == 4;
+                    Target(upward ? "Target (upward)" : "Target", field, new Vector3(columns[col], height, -45f - row * 26f), p,
+                        upward ? UpwardTargetBias : 0f);
+                }
+            }
+            Box("Field Wall East (0-12 m)", field, 256f, 257f, 0f, 12f, -300f, -60f, p.Wall);
+            Box("Field Wall West (0-12 m)", field, 178f, 179f, 0f, 12f, -330f, -240f, p.Wall);
+        }
+
+        /// <summary>
+        /// Placeholder traversal target: a glowing orb inside a ring that always faces the camera. No collider, so the
+        /// player flies straight through it.
+        /// </summary>
+        static TraversalTarget Target(string name, Transform parent, Vector3 position, Palette p, float extraUpwardBias = 0f)
+        {
+            var go = new GameObject(name);
+            go.transform.SetParent(parent, false);
+            go.transform.position = position;
+
+            var target = go.AddComponent<TraversalTarget>();
+            target.ExtraUpwardBias = extraUpwardBias;
+
+            Transform visual = Group("Visual", go.transform);
+            GameObject core = Primitive(PrimitiveType.Sphere, "Core", visual, Vector3.zero, Vector3.one * TargetCoreSize, p.TargetIdle);
+            GameObject ring = CreateMeshObject("Ring", visual, position, Quaternion.identity, p.TargetRing, p.TargetIdle);
+            target.SetLook(new[] { core.GetComponent<Renderer>(), ring.GetComponent<Renderer>() },
+                p.TargetIdle, p.TargetSelected, p.TargetCooldown, ring.transform, visual);
+            return target;
         }
 
         static Transform Group(string name, Transform parent)
@@ -339,9 +436,13 @@ namespace ProjectVelocity.EditorTools
 
             var input = player.AddComponent<DesktopInputSource>();
 
+            var targeting = player.AddComponent<TraversalTargeting>();
+            targeting.Motor = motor;
+
             var playerController = player.AddComponent<VelocityPlayerController>();
             playerController.Motor = motor;
             playerController.InputSource = input;
+            playerController.Targeting = targeting;
 
             // Placeholder body: a capsule with a dark visor so facing direction is readable.
             Transform visualRoot = Group("Visual", player.transform);
@@ -352,7 +453,9 @@ namespace ProjectVelocity.EditorTools
             visual.Motor = motor;
             visual.VisualRoot = visualRoot;
 
-            player.AddComponent<MovementDebugHUD>().Motor = motor;
+            var hud = player.AddComponent<MovementDebugHUD>();
+            hud.Motor = motor;
+            hud.Targeting = targeting;
 
             SetLayerRecursively(player.transform, PlayerLayer);
             return player;
@@ -440,9 +543,14 @@ namespace ProjectVelocity.EditorTools
             public Material Wall;
             public Material PlayerBody;
             public Material PlayerVisor;
+            public Material TargetIdle;
+            public Material TargetSelected;
+            public Material TargetCooldown;
+            public Mesh TargetRing;
         }
 
-        // Colour-coded for readability only: orange = ramps, blue = elevated path, green = towers, red = markers, teal = wall-run walls.
+        // Colour-coded for readability only: orange = ramps, blue = elevated path, green = towers, red = markers, teal = wall-run walls,
+        // violet = traversal targets (pink while selected, grey while cooling down).
         static Palette CreatePalette()
         {
             Texture2D grid = LoadOrCreateGridTexture();
@@ -458,7 +566,26 @@ namespace ProjectVelocity.EditorTools
                 Wall = Mat("Graybox_Wall", new Color(0.30f, 0.72f, 0.68f), grid),
                 PlayerBody = Mat("Player_Body", new Color(1f, 0.82f, 0.2f), null),
                 PlayerVisor = Mat("Player_Visor", new Color(0.08f, 0.09f, 0.11f), null),
+                TargetIdle = GlowMat("Target_Idle", new Color(0.50f, 0.25f, 0.85f), new Color(0.30f, 0.10f, 0.60f)),
+                TargetSelected = GlowMat("Target_Selected", new Color(1f, 0.35f, 0.85f), new Color(1f, 0.30f, 0.80f)),
+                TargetCooldown = GlowMat("Target_Cooldown", new Color(0.28f, 0.25f, 0.33f), Color.black),
+                TargetRing = GrayboxMeshes.Torus(TargetRingRadius, 0.12f, 48, 10),
             };
+        }
+
+        /// <summary>A <see cref="Mat"/> that glows, so targets read from a distance. Black emission = no glow.</summary>
+        static Material GlowMat(string name, Color color, Color emission)
+        {
+            Material material = Mat(name, color, null);
+            bool glows = emission.maxColorComponent > 0f;
+            material.SetColor("_EmissionColor", emission);
+            if (glows)
+                material.EnableKeyword("_EMISSION");
+            else
+                material.DisableKeyword("_EMISSION");
+            material.globalIlluminationFlags = glows ? MaterialGlobalIlluminationFlags.RealtimeEmissive : MaterialGlobalIlluminationFlags.EmissiveIsBlack;
+            EditorUtility.SetDirty(material);
+            return material;
         }
 
         static Material Mat(string name, Color color, Texture texture)

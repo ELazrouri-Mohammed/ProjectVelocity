@@ -57,6 +57,61 @@ namespace ProjectVelocity.EditorTools
             return builder.ToMesh($"Ramp {width:0.#}x{length:0.#} rise {rise:0.#}");
         }
 
+        /// <summary>
+        /// Ring (torus) centred on its pivot, lying in the local XY plane so it faces along ±Z.
+        /// <paramref name="radius"/> is to the middle of the tube.
+        /// </summary>
+        public static Mesh Torus(float radius, float tubeRadius, int segments, int sides)
+        {
+            var vertices = new List<Vector3>();
+            var normals = new List<Vector3>();
+            var uvs = new List<Vector2>();
+            var triangles = new List<int>();
+
+            for (int i = 0; i <= segments; i++)
+            {
+                float around = i * 2f * Mathf.PI / segments;
+                var ringDir = new Vector3(Mathf.Cos(around), Mathf.Sin(around), 0f);
+                for (int j = 0; j <= sides; j++)
+                {
+                    float tube = j * 2f * Mathf.PI / sides;
+                    Vector3 normal = ringDir * Mathf.Cos(tube) + Vector3.forward * Mathf.Sin(tube);
+                    vertices.Add(ringDir * radius + normal * tubeRadius);
+                    normals.Add(normal);
+                    uvs.Add(new Vector2((float)i / segments, (float)j / sides));
+                }
+            }
+
+            int stride = sides + 1;
+            for (int i = 0; i < segments; i++)
+            {
+                for (int j = 0; j < sides; j++)
+                {
+                    int a = i * stride + j;
+                    int b = a + stride;
+                    int c = b + 1;
+                    int d = a + 1;
+
+                    // Unity treats clockwise triangles as front-facing; pick the winding that faces outward.
+                    Vector3 outward = normals[a] + normals[b] + normals[c] + normals[d];
+                    Vector3 face = Vector3.Cross(vertices[b] - vertices[a], vertices[c] - vertices[a]);
+                    if (Vector3.Dot(face, outward) >= 0f)
+                        triangles.AddRange(new[] { a, b, c, a, c, d });
+                    else
+                        triangles.AddRange(new[] { a, c, b, a, d, c });
+                }
+            }
+
+            var mesh = new Mesh { name = $"Torus {radius:0.#} / {tubeRadius:0.##}" };
+            mesh.SetVertices(vertices);
+            mesh.SetNormals(normals);
+            mesh.SetUVs(0, uvs);
+            mesh.SetTriangles(triangles, 0);
+            mesh.RecalculateBounds();
+            mesh.RecalculateTangents();
+            return mesh;
+        }
+
         enum UvPlane
         {
             XZ,

@@ -3,8 +3,8 @@ using UnityEngine;
 namespace ProjectVelocity
 {
     /// <summary>
-    /// Glue between input, camera and motor. Each frame it reads device-independent intent,
-    /// turns the camera, converts movement into camera-relative world space and drives the motor.
+    /// Glue between input, camera, traversal targeting and motor. Each frame it reads device-independent intent,
+    /// turns the camera, updates the target selection, converts movement into camera-relative world space and drives the motor.
     /// </summary>
     [DisallowMultipleComponent]
     [RequireComponent(typeof(VelocityMotor))]
@@ -17,6 +17,9 @@ namespace ProjectVelocity
 
         [Tooltip("Camera rig. Movement is relative to its facing.")]
         [SerializeField] VelocityCamera cameraRig;
+
+        [Tooltip("Traversal target soft lock. The activate button launches through its selection. Optional.")]
+        [SerializeField] TraversalTargeting targeting;
 
         [Tooltip("Falling below this height puts you back at the start.")]
         [SerializeField] float killHeight = -30f;
@@ -42,6 +45,12 @@ namespace ProjectVelocity
             set => cameraRig = value;
         }
 
+        public TraversalTargeting Targeting
+        {
+            get => targeting;
+            set => targeting = value;
+        }
+
         void Awake()
         {
             if (motor == null)
@@ -50,6 +59,8 @@ namespace ProjectVelocity
                 inputSource = GetComponent<VelocityInputSource>();
             if (cameraRig == null && Camera.main != null)
                 cameraRig = Camera.main.GetComponent<VelocityCamera>();
+            if (targeting == null)
+                targeting = GetComponent<TraversalTargeting>();
 
             spawnPosition = transform.position;
             spawnYaw = transform.eulerAngles.y;
@@ -69,6 +80,9 @@ namespace ProjectVelocity
             forward = forward.sqrMagnitude > 1e-4f ? forward.normalized : Vector3.forward;
             Vector3 right = new Vector3(forward.z, 0f, -forward.x);
 
+            // Pick the most likely target before moving; the button only ever launches through that one.
+            TraversalTarget activate = targeting != null ? targeting.Tick(intent.TargetPressed) : null;
+
             var command = new MotorCommand
             {
                 MoveDirection = Vector3.ClampMagnitude(right * intent.Move.x + forward * intent.Move.y, 1f),
@@ -76,6 +90,7 @@ namespace ProjectVelocity
                 JumpPressed = intent.JumpPressed,
                 JumpHeld = intent.JumpHeld,
                 BoostPressed = intent.BoostPressed,
+                ActivateTarget = activate,
             };
             motor.Tick(command, dt);
 

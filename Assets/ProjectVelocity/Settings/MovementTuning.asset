@@ -71,3 +71,24 @@ MonoBehaviour:
   wallRunLayers:
     serializedVersion: 2
     m_Bits: 4294967291
+  targetDetectionRange: 35
+  targetMinDistance: 3
+  targetSelectionAngle: 40
+  targetCameraWeight: 0.6
+  targetMovementWeight: 0.4
+  targetDistancePreference: 0.3
+  targetSelectionStickiness: 0.15
+  targetBlockingLayers:
+    serializedVersion: 2
+    m_Bits: 4294967291
+  targetPropulsionSpeed: 46
+  targetMomentumKeep: 1
+  targetPullAcceleration: 200
+  targetRedirectRate: 1080
+  targetArrivalDistance: 1.5
+  targetExitSpeedKeep: 1
+  targetUpwardBias: 0.15
+  targetLaunchLevelsOut: 1
+  targetMaxPullTime: 1
+  targetRefreshesAirBoost: 1
+  targetReactivationCooldown: 0.15

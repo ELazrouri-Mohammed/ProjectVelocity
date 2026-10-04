@@ -183,5 +183,65 @@ namespace ProjectVelocity
 
         [Tooltip("Layers you can wall run on. The player itself sits on Ignore Raycast.")]
         public LayerMask wallRunLayers = ~(1 << 2);
+
+        [Header("Traversal Targets: Selection (soft lock)")]
+        [Tooltip("Farthest a traversal target can be selected from (m). Each target can scale this with its Range Multiplier.")]
+        [Min(0f)] public float targetDetectionRange = 35f;
+
+        [Tooltip("Targets closer than this (m) are ignored, so a target you're already on top of never grabs the selection.")]
+        [Min(0f)] public float targetMinDistance = 3f;
+
+        [Tooltip("Selection angle: how far off your intent (degrees) a target may be and still be selected. Intent blends where the camera looks with where you're moving (the two weights below).")]
+        [Range(1f, 90f)] public float targetSelectionAngle = 40f;
+
+        [Tooltip("Camera-direction weighting: how much where the camera looks counts toward intent (measured from the centre of the view).")]
+        [Min(0f)] public float targetCameraWeight = 0.6f;
+
+        [Tooltip("Movement-direction weighting: how much your direction of travel counts toward intent. Ignored while standing still.")]
+        [Min(0f)] public float targetMovementWeight = 0.4f;
+
+        [Tooltip("Between two valid targets, how much the nearer one is preferred over the better-aligned one. 0 = alignment only, 1 = distance only.")]
+        [Range(0f, 1f)] public float targetDistancePreference = 0.3f;
+
+        [Tooltip("How much better another target must score (0-1 scale) before it takes the selection from the current one. Stops the selection flickering between targets.")]
+        [Range(0f, 1f)] public float targetSelectionStickiness = 0.15f;
+
+        [Tooltip("Layers that block line of sight to a target: a target behind a wall can't be selected. The player itself sits on Ignore Raycast.")]
+        public LayerMask targetBlockingLayers = ~(1 << 2);
+
+        [Header("Traversal Targets: Propulsion")]
+        [Tooltip("Propulsion strength: speed (m/s) a target pulls you through it at, and launches you out with. Each target can scale it with its Strength Multiplier. Arriving faster keeps your speed (see Momentum Keep).")]
+        [Min(0f)] public float targetPropulsionSpeed = 46f;
+
+        [Tooltip("Momentum preservation: share of your entry speed kept when you arrive faster than Propulsion Speed. 1 = a fast entry is never slowed down; 0 = the target always sets Propulsion Speed.")]
+        [Range(0f, 1f)] public float targetMomentumKeep = 1f;
+
+        [Tooltip("How quickly your speed builds toward Propulsion Speed on the way in (m/s²). 0 = instantly. The launch out is always at full speed.")]
+        [Min(0f)] public float targetPullAcceleration = 200f;
+
+        [Tooltip("How fast your direction of travel swings toward the target (degrees per second). Your velocity is turned, never zeroed. Lower = a wider, swooping curve in.")]
+        [Min(0f)] public float targetRedirectRate = 1080f;
+
+        [Tooltip("Arrival distance (m): within this distance of the target's centre you count as through it and are launched.")]
+        [Min(0f)] public float targetArrivalDistance = 1.5f;
+
+        [Tooltip("Pass-through: share of the pull speed carried out the far side. 1 = fly straight through at full speed (slingshot); lower = the target brakes you as you pass.")]
+        [Range(0f, 1f)] public float targetExitSpeedKeep = 1f;
+
+        [Tooltip("Upward bias: tilts the launch out of a target toward straight up. 0 = carry straight through, 1 = straight up. Speed is kept; only the direction changes. Each target can add Extra Upward Bias.")]
+        [Range(0f, 1f)] public float targetUpwardBias = 0.15f;
+
+        [Tooltip("When on, a launch never points downward: diving into a target comes out level, then Upward Bias applies.")]
+        public bool targetLaunchLevelsOut = true;
+
+        [Tooltip("Safety limit (s): if you haven't reached the target by then, the pull lets go and you keep your current speed.")]
+        [Min(0.05f)] public float targetMaxPullTime = 1f;
+
+        [Header("Traversal Targets: Chaining")]
+        [Tooltip("Air boost refresh: activating a target gives back ONE air boost, so targets sustain long chains. Turn off to test without it.")]
+        public bool targetRefreshesAirBoost = true;
+
+        [Tooltip("Reactivation cooldown (s): after leaving a target, the activate button is ignored for this long, so a double press doesn't instantly fire the next one. (Each target also has its own cooldown before it can be reused.)")]
+        [Min(0f)] public float targetReactivationCooldown = 0.15f;
     }
 }

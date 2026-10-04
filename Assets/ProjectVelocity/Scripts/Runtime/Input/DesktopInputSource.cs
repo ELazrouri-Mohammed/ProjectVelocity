@@ -18,6 +18,7 @@ namespace ProjectVelocity
         InputAction stickLook;
         InputAction jump;
         InputAction boost;
+        InputAction activateTarget;
         InputAction respawn;
         InputAction freeCursor;
         InputAction captureCursor;
@@ -41,6 +42,10 @@ namespace ProjectVelocity
             boost = new InputAction("Boost", InputActionType.Button, "<Keyboard>/leftShift");
             boost.AddBinding("<Gamepad>/rightShoulder");
             boost.AddBinding("<Gamepad>/buttonEast");
+
+            // Temporary desktop binding for the traversal-target button (a touch button later).
+            activateTarget = new InputAction("ActivateTarget", InputActionType.Button, "<Keyboard>/e");
+            activateTarget.AddBinding("<Gamepad>/buttonWest");
 
             respawn = new InputAction("Respawn", InputActionType.Button, "<Keyboard>/r");
             respawn.AddBinding("<Gamepad>/select");
@@ -69,6 +74,7 @@ namespace ProjectVelocity
             stickLook?.Dispose();
             jump?.Dispose();
             boost?.Dispose();
+            activateTarget?.Dispose();
             respawn?.Dispose();
             freeCursor?.Dispose();
             captureCursor?.Dispose();
@@ -92,13 +98,14 @@ namespace ProjectVelocity
                 JumpPressed = jump.WasPressedThisFrame(),
                 JumpHeld = jump.IsPressed(),
                 BoostPressed = boost.WasPressedThisFrame(),
+                TargetPressed = activateTarget.WasPressedThisFrame(),
                 RespawnPressed = respawn.WasPressedThisFrame(),
             };
         }
 
         void SetActionsEnabled(bool active)
         {
-            foreach (InputAction action in new[] { move, mouseLook, stickLook, jump, boost, respawn, freeCursor, captureCursor })
+            foreach (InputAction action in new[] { move, mouseLook, stickLook, jump, boost, activateTarget, respawn, freeCursor, captureCursor })
             {
                 if (action == null)
                     continue;

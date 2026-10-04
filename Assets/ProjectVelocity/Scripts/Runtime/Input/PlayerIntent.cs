@@ -21,6 +21,10 @@ namespace ProjectVelocity
         public bool JumpPressed;
         public bool JumpHeld;
         public bool BoostPressed;
+
+        /// <summary>Activate the selected traversal target. One button: E on desktop for now, a touch button later.</summary>
+        public bool TargetPressed;
+
         public bool RespawnPressed;
     }
 }

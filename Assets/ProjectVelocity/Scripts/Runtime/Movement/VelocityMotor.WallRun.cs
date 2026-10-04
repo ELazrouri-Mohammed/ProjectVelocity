@@ -60,6 +60,7 @@ namespace ProjectVelocity
             Jumped,
             Boosted,
             Landed,
+            Targeted,
         }
 
         public event Action WallRunStarted;
