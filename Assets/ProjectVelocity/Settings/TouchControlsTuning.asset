@@ -1,0 +1,36 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 601f0577790b4ec5ad40ae8044a045d1, type: 3}
+  m_Name: TouchControlsTuning
+  m_EditorClassIdentifier: ProjectVelocity.Runtime::ProjectVelocity.TouchControlsTuning
+  controlScale: 1
+  stickMode: 0
+  stickPosition: {x: 300, y: 280}
+  stickRadius: 150
+  movementZoneWidth: 0.45
+  deadZone: 0.1
+  fullTiltAt: 0.9
+  responseExponent: 1
+  stickFollowsThumb: 0
+  lookSensitivity: 300
+  verticalLookScale: 0.7
+  lookAcceleration: 0
+  jumpPosition: {x: 250, y: 240}
+  jumpRadius: 105
+  boostPosition: {x: 520, y: 180}
+  boostRadius: 82
+  actionPosition: {x: 225, y: 495}
+  actionRadius: 82
+  buttonHitScale: 1.15
+  showResetButton: 1
+  resetPosition: {x: 90, y: 80}
+  resetRadius: 46
