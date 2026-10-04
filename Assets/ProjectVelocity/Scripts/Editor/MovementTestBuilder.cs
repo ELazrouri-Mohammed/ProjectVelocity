@@ -41,11 +41,11 @@ namespace ProjectVelocity.EditorTools
         // Extra Upward Bias for the targets that redirect you upward (added to Target Upward Bias in Movement Tuning).
         const float UpwardTargetBias = 0.35f;
 
-        // Placeholder enemy (Sentinel): a glowing diamond (half width, half height, m) inside a tilted ring, chest high
-        // when it sits on the ground, plus a few hidden shards for its death burst.
-        const float EnemyCoreRadius = 0.55f;
-        const float EnemyCoreHalfHeight = 0.8f;
-        const float EnemyRingRadius = 0.95f;
+        // Placeholder enemy (Sentinel): a bright red glowing diamond about 2 m tall (half width, half height, m) inside a tilted
+        // ring, centred at chest height when it sits on the ground, plus a few hidden shards for its death burst.
+        const float EnemyCoreRadius = 0.7f;
+        const float EnemyCoreHalfHeight = 1.0f;
+        const float EnemyRingRadius = 1.15f;
         const float GroundEnemyHeight = 1.4f;
         const int EnemyShardCount = 6;
         const float EnemyShardSize = 0.28f;
@@ -119,9 +119,12 @@ namespace ProjectVelocity.EditorTools
             CameraTuning cameraTuning = LoadOrCreateAsset<CameraTuning>(CameraTuningPath);
             TouchControlsTuning touchTuning = LoadOrCreateAsset<TouchControlsTuning>(TouchControlsTuningPath);
             CombatTuning combatTuning = LoadOrCreateAsset<CombatTuning>(CombatTuningPath);
-            Palette palette = CreatePalette();
 
+            // The palette's generated meshes live only in memory until the scene saves them, so they must be made after the
+            // new scene opens: opening it unloads unused in-memory objects, and a mesh made before that is destroyed and saved
+            // as nothing (an invisible object).
             Scene scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+            Palette palette = CreatePalette();
             SetupLighting();
             BuildPlayground(palette);
 
@@ -134,6 +137,7 @@ namespace ProjectVelocity.EditorTools
             player.GetComponent<CombatTargeting>().Viewpoint = cameraRig.transform;
             player.GetComponent<CombatController>().CameraRig = cameraRig;
 
+            CheckMeshes(scene);
             EditorSceneManager.SaveScene(scene, ScenePath);
             AddSceneToBuildSettings();
             AssetDatabase.SaveAssets();
@@ -390,12 +394,13 @@ namespace ProjectVelocity.EditorTools
             }
 
             // I1: one test at a time down a straight lane, chest high unless noted.
-            // A: straight ahead. B: off to the right, then to the left, while running down the middle.
+            // A: straight ahead, just past the gate, in full view from the lane entrance.
+            // B: off to the right, then to the left, while running down the middle.
             // C: above a hurdle, out of reach from the ground: jump the hurdle and cut it on the way over.
             // D: past the end of the wall on the right, too high to reach from the ground or the wall: wall run, wall jump in
             // the last stretch of the wall, cut it.
             Transform basics = Group("I1 - Combat Basics", section);
-            Enemy("Sentinel A - Straight Ahead", basics, new Vector3(-50f, GroundEnemyHeight, 0f), p);
+            Enemy("Sentinel A - Straight Ahead", basics, new Vector3(-28f, GroundEnemyHeight, 0f), p);
             Enemy("Sentinel B1 - Right", basics, new Vector3(-82f, GroundEnemyHeight, 4.5f), p);
             Enemy("Sentinel B2 - Left", basics, new Vector3(-112f, GroundEnemyHeight, -4.5f), p);
             Block("Hurdle (1.2 m)", basics, -145f, 0f, 2f, 12f, 1.2f, p.Block);
@@ -953,14 +958,16 @@ namespace ProjectVelocity.EditorTools
                 TargetIdle = GlowMat("Target_Idle", new Color(0.50f, 0.25f, 0.85f), new Color(0.30f, 0.10f, 0.60f)),
                 TargetSelected = GlowMat("Target_Selected", new Color(1f, 0.35f, 0.85f), new Color(1f, 0.30f, 0.80f)),
                 TargetCooldown = GlowMat("Target_Cooldown", new Color(0.28f, 0.25f, 0.33f), Color.black),
-                TargetRing = GrayboxMeshes.Torus(TargetRingRadius, 0.12f, 48, 10),
-                EnemyIdle = GlowMat("Enemy_Idle", new Color(0.85f, 0.12f, 0.12f), new Color(0.75f, 0.05f, 0.05f)),
+                EnemyIdle = GlowMat("Enemy_Idle", new Color(1f, 0.08f, 0.06f), new Color(1f, 0.06f, 0.04f)),
                 EnemySelected = GlowMat("Enemy_Selected", new Color(1f, 0.85f, 0.3f), new Color(1f, 0.7f, 0.15f)),
                 EnemyHit = GlowMat("Enemy_Hit", Color.white, Color.white),
-                EnemyCore = GrayboxMeshes.Octahedron(EnemyCoreRadius, EnemyCoreHalfHeight),
-                EnemyRing = GrayboxMeshes.Torus(EnemyRingRadius, 0.06f, 32, 6),
                 BladeSteel = GlowMat("Blade_Steel", new Color(0.8f, 0.86f, 0.95f), new Color(0.15f, 0.3f, 0.45f)),
                 SlashFx = FxMat("Slash_Arc", new Color(0.65f, 0.92f, 1f, 0.6f)),
+
+                // Generated meshes last, after every asset operation, and only once the new scene is open (see Build).
+                TargetRing = GrayboxMeshes.Torus(TargetRingRadius, 0.12f, 48, 10),
+                EnemyCore = GrayboxMeshes.Octahedron(EnemyCoreRadius, EnemyCoreHalfHeight),
+                EnemyRing = GrayboxMeshes.Torus(EnemyRingRadius, 0.08f, 32, 6),
                 SlashArc = GrayboxMeshes.Crescent(SlashInnerRadius, SlashOuterRadius, SlashArcDegrees, 24),
             };
         }
@@ -1088,6 +1095,27 @@ namespace ProjectVelocity.EditorTools
         }
 
         // ------------------------------------------------------------------ Assets & settings
+
+        /// <summary>
+        /// Every mesh object must have its mesh when the scene is saved; a missing one is saved as nothing and renders as
+        /// nothing, which is easy to miss in a big level. Logs each one (click to select it).
+        /// </summary>
+        static void CheckMeshes(Scene scene)
+        {
+            int missing = 0;
+            foreach (GameObject root in scene.GetRootGameObjects())
+            {
+                foreach (MeshFilter filter in root.GetComponentsInChildren<MeshFilter>(true))
+                {
+                    if (filter.sharedMesh != null)
+                        continue;
+                    missing++;
+                    Debug.LogError($"[Project Velocity] '{filter.name}' has no mesh and will be invisible.", filter);
+                }
+            }
+            if (missing > 0)
+                Debug.LogError($"[Project Velocity] Movement test built with {missing} invisible mesh object(s): see the errors above.");
+        }
 
         static void AddSceneToBuildSettings()
         {
