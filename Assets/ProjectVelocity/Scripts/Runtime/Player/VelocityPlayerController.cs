@@ -10,7 +10,7 @@ namespace ProjectVelocity
     [RequireComponent(typeof(VelocityMotor))]
     public sealed class VelocityPlayerController : MonoBehaviour
     {
-        [Tooltip("Where player intent comes from (desktop now, touch controls later).")]
+        [Tooltip("Where player intent comes from (keyboard/mouse or touch controls). Set at startup by the Input Source Selector, if there is one.")]
         [SerializeField] VelocityInputSource inputSource;
 
         [SerializeField] VelocityMotor motor;
@@ -73,7 +73,7 @@ namespace ProjectVelocity
 
             // Turn the camera first so movement uses this frame's facing.
             if (cameraRig != null)
-                cameraRig.AddLookInput(intent.LookDelta, intent.LookRate, dt);
+                cameraRig.AddLookInput(intent.LookDelta, intent.LookRate, intent.LookDegrees, dt);
 
             Vector3 forward = cameraRig != null ? cameraRig.PlanarForward : transform.forward;
             forward.y = 0f;

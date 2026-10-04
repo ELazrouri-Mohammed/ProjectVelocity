@@ -54,6 +54,28 @@ namespace ProjectVelocity.EditorTools
     {
     }
 
+    [CustomEditor(typeof(MobileInputSource))]
+    sealed class MobileInputSourceEditor : TuningHostEditor
+    {
+    }
+
+    /// <summary>Explains which controls will be used, and how to try the touch controls in the Editor.</summary>
+    [CustomEditor(typeof(InputSourceSelector))]
+    sealed class InputSourceSelectorEditor : Editor
+    {
+        public override void OnInspectorGUI()
+        {
+            DrawDefaultInspector();
+            var selector = (InputSourceSelector)target;
+            string message = Application.isPlaying
+                ? $"Using {(selector.UsingTouchControls ? "touch controls" : "keyboard / mouse")}. Changes here apply the next time you press Play."
+                : "Android / iOS builds always use the touch controls; desktop builds use keyboard / mouse. " +
+                  "In the Editor, Mobile shows the touch controls in the Game view (the mouse acts as one finger); " +
+                  "the Device Simulator picks them automatically. Rebuilding the Movement Test resets this to Auto.";
+            EditorGUILayout.HelpBox(message, MessageType.None);
+        }
+    }
+
     /// <summary>Points to where the target feel values live.</summary>
     [CustomEditor(typeof(TraversalTargeting))]
     sealed class TraversalTargetingEditor : Editor

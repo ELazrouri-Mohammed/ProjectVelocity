@@ -81,11 +81,14 @@ namespace ProjectVelocity
                 Destroy(fallbackTuning);
         }
 
-        /// <summary>Applies look input. Pointer deltas are scaled by sensitivity, stick rates by turn speed and frame time.</summary>
-        public void AddLookInput(Vector2 pointerDelta, Vector2 stickRate, float deltaTime)
+        /// <summary>
+        /// Applies look input. Pointer deltas are scaled by sensitivity, stick rates by turn speed and frame time;
+        /// <paramref name="degrees"/> (touch drag, already scaled by its own sensitivity) is applied as is.
+        /// </summary>
+        public void AddLookInput(Vector2 pointerDelta, Vector2 stickRate, Vector2 degrees, float deltaTime)
         {
             CameraTuning t = Settings;
-            Vector2 degrees = pointerDelta * t.lookSensitivity + stickRate * (t.stickLookSpeed * deltaTime);
+            degrees += pointerDelta * t.lookSensitivity + stickRate * (t.stickLookSpeed * deltaTime);
             yaw = Mathf.Repeat(yaw + degrees.x, 360f);
             pitch = Mathf.Clamp(pitch + (t.invertY ? degrees.y : -degrees.y), t.minPitch, t.maxPitch);
         }
