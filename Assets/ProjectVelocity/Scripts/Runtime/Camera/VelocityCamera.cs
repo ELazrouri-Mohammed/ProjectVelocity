@@ -124,7 +124,8 @@ namespace ProjectVelocity
 
             if (cam != null)
             {
-                float speed = targetMotor != null ? targetMotor.Speed : 0f;
+                // On a wall, upward speed counts too, so a climb doesn't narrow the view. Otherwise unchanged.
+                float speed = targetMotor == null ? 0f : targetMotor.IsWallRunning ? targetMotor.Velocity.magnitude : targetMotor.Speed;
                 float speed01 = Mathf.InverseLerp(t.fovMinSpeed, t.fovMaxSpeed, speed);
                 float targetFov = Mathf.Lerp(t.fovMin, t.fovMax, speed01);
                 cam.fieldOfView = Mathf.SmoothDamp(cam.fieldOfView, targetFov, ref fovVelocity, t.fovSmoothTime);

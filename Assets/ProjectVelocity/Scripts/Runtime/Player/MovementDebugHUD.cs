@@ -39,12 +39,18 @@ namespace ProjectVelocity
             style.fontSize = Mathf.Max(12, Mathf.RoundToInt(Screen.height / 45f));
 
             float speed = motor.Speed;
-            string state = motor.IsBoosting ? "BOOST" : motor.IsGrounded ? "GROUND" : "AIR";
+            string state = motor.State switch
+            {
+                MotorState.Wall => $"WALL   ({motor.WallRunTimeRemaining:0.0}s left)",
+                MotorState.Boost => "BOOST",
+                MotorState.Ground => "GROUND",
+                _ => "AIR",
+            };
             string boost = motor.BoostCooldownRemaining > 0f ? $"{motor.BoostCooldownRemaining:0.00}s" : "ready";
             float fps = smoothedFrameTime > 0f ? 1f / smoothedFrameTime : 0f;
 
             string stats =
-                $"Speed  {speed:0.0} m/s  ({speed * 3.6f:0} km/h)\n" +
+                $"Speed  {speed:0.0} m/s  ({speed * 3.6f:0} km/h)   vertical {motor.Velocity.y:+0.0;-0.0;0.0}\n" +
                 $"State  {state}\n" +
                 $"Boost  {boost}   air boosts left {motor.AirBoostsRemaining}\n" +
                 $"FPS    {fps:0}";
@@ -54,7 +60,7 @@ namespace ProjectVelocity
 
             if (showControls)
             {
-                const string controls = "WASD move   Mouse look   Space jump   Shift boost   R respawn   Esc free cursor";
+                const string controls = "WASD move   Mouse look   Space jump / wall jump   Shift boost   R respawn   Esc free cursor";
                 DrawShadowed(new Rect(16f, Screen.height - lineHeight - 12f, Screen.width - 32f, lineHeight), controls);
             }
         }
