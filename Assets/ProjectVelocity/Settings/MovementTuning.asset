@@ -42,3 +42,32 @@ MonoBehaviour:
   groundLayers:
     serializedVersion: 2
     m_Bits: 4294967291
+  wallRunMinEntrySpeed: 10
+  wallRunSpeed: 26
+  wallRunAcceleration: 20
+  wallRunMomentumDecay: 4
+  wallRunMinSpeed: 8
+  maxWallRunDuration: 1.6
+  wallGravity: 18
+  wallMaxSlideSpeed: 4
+  wallRunEntryLift: 4
+  wallEntryRedirect: 0.8
+  wallRunRefreshesAirBoosts: 1
+  wallClimbMinAngle: 45
+  wallClimbSpeed: 22
+  wallClimbDuration: 0.4
+  wallReleaseAngle: 45
+  wallBrake: 40
+  wallJumpAwayForce: 16
+  wallJumpUpForce: 16
+  wallJumpMomentumKeep: 1
+  wallJumpCommitTime: 0.3
+  wallJumpCoyoteTime: 0.2
+  wallJumpAssistRange: 16
+  wallDetectionDistance: 0.6
+  maxWallTilt: 20
+  wallMinHeight: 1
+  wallReattachCooldown: 0.4
+  wallRunLayers:
+    serializedVersion: 2
+    m_Bits: 4294967291

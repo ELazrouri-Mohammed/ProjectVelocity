@@ -6,11 +6,11 @@ namespace ProjectVelocity
     /// <summary>
     /// High-speed kinematic character motor built on CharacterController.
     /// It knows nothing about devices or cameras: something calls <see cref="Tick"/> once per frame
-    /// with a world-space <see cref="MotorCommand"/>.
+    /// with a world-space <see cref="MotorCommand"/>. Wall traversal lives in VelocityMotor.WallRun.cs.
     /// </summary>
     [DisallowMultipleComponent]
     [RequireComponent(typeof(CharacterController))]
-    public sealed class VelocityMotor : MonoBehaviour
+    public sealed partial class VelocityMotor : MonoBehaviour
     {
         // Pushing more than this many degrees away from the current motion counts as a reversal (hard brake).
         const float ReversalAngle = 140f;
@@ -47,6 +47,9 @@ namespace ProjectVelocity
         public Vector3 Velocity => lastMoveVelocity;
         public float BoostCooldownRemaining => boostCooldownTimer;
         public int AirBoostsRemaining => Mathf.Max(0, Settings.maxAirBoosts - airBoostsUsed);
+
+        public MotorState State =>
+            wallRunning ? MotorState.Wall : boostTimer > 0f ? MotorState.Boost : grounded ? MotorState.Ground : MotorState.Air;
 
         CharacterController controller;
         MovementTuning fallbackTuning;
@@ -108,6 +111,7 @@ namespace ProjectVelocity
             boostCooldownTimer = Mathf.Max(0f, boostCooldownTimer - dt);
             coyoteTimer = grounded ? t.coyoteTime : coyoteTimer - dt;
             jumpBufferTimer = command.JumpPressed ? t.jumpBufferTime : jumpBufferTimer - dt;
+            TickWallTimers(t, dt);
 
             Vector3 wishDir = new Vector3(command.MoveDirection.x, 0f, command.MoveDirection.z);
             float wishMagnitude = wishDir.magnitude;
@@ -125,15 +129,20 @@ namespace ProjectVelocity
             if (command.BoostPressed)
                 TryStartBoost(t, wishDir, command.FallbackDirection);
 
-            // Horizontal motion.
-            if (boostTimer > 0f)
+            // Horizontal motion. On a wall, the wall run drives both planar and vertical motion.
+            if (wallRunning && KeepWallRun(t, wishDir, wishAmount))
+                UpdateWallRun(t, wishDir, wishAmount, dt);
+            else if (boostTimer > 0f)
                 UpdateBoost(t, wishDir, wishAmount, dt);
             else if (grounded)
                 planarVelocity = ApplyControl(planarVelocity, wishDir, wishAmount, t.maxGroundSpeed, t.groundAcceleration,
                     t.groundDeceleration, t.turnResponsiveness, t.reversalBrake, t.groundMomentumDecay, dt);
             else
+            {
+                float steer = WallJumpSteerScale(t, wishDir); // 1 except right after a wall jump
                 planarVelocity = ApplyControl(planarVelocity, wishDir, wishAmount, t.maxAirSpeed, t.airAcceleration,
-                    0f, t.airTurnResponsiveness, t.airBrake, t.airMomentumDecay, dt);
+                    0f, t.airTurnResponsiveness * steer, t.airBrake * steer, t.airMomentumDecay, dt);
+            }
 
             // Jump (buffered input + coyote time). Horizontal speed is never touched, so jumping keeps all momentum.
             bool jumpedThisFrame = false;
@@ -151,9 +160,14 @@ namespace ProjectVelocity
                 boostHoldsAltitude = false; // a boost still running keeps its speed, but gravity applies to the jump
                 Jumped?.Invoke();
             }
+            else if (jumpBufferTimer > 0f && CanWallJump)
+            {
+                WallJump(t, wishDir, wishAmount);
+                jumpedThisFrame = true;
+            }
 
-            // Gravity.
-            if (!grounded)
+            // Gravity (the wall run applies its own while attached).
+            if (!grounded && !wallRunning)
             {
                 bool gravityPaused = boostTimer > 0f && boostHoldsAltitude;
                 if (!gravityPaused)
@@ -183,10 +197,12 @@ namespace ProjectVelocity
                 moveVelocity = planarVelocity + Vector3.up * verticalSpeed;
             }
 
-            controller.Move(moveVelocity * dt);
+            BeginWallContacts();
+            controller.Move(moveVelocity * dt + WallSnapOffset(dt));
             lastMoveVelocity = moveVelocity;
 
             UpdateGrounding(t, dt, jumpedThisFrame, moveVelocity);
+            UpdateWallState(t, wishDir, wishAmount, jumpedThisFrame);
         }
 
         /// <summary>Instantly moves the character and clears all motion.</summary>
@@ -207,6 +223,7 @@ namespace ProjectVelocity
             boostTimer = 0f;
             boostCooldownTimer = 0f;
             airBoostsUsed = 0;
+            ResetWallState();
         }
 
         /// <summary>
@@ -255,6 +272,12 @@ namespace ProjectVelocity
                 return;
             if (!grounded && airBoostsUsed >= t.maxAirBoosts)
                 return;
+
+            if (wallRunning)
+            {
+                wishDir = WallBoostDirection(wishDir, fallbackDirection);
+                StopWallRun(t, WallExit.Boosted);
+            }
 
             // Boost where the player is steering; otherwise keep going the way they are moving; otherwise go forward.
             Vector3 direction = wishDir;
@@ -404,6 +427,7 @@ namespace ProjectVelocity
             if (wallNormal.sqrMagnitude < 1e-4f)
                 return;
             wallNormal.Normalize();
+            RecordWallContact(wallNormal);
 
             float into = Vector3.Dot(planarVelocity, wallNormal);
             if (into < 0f)

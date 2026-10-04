@@ -94,6 +94,7 @@ namespace ProjectVelocity.EditorTools
 
             Selection.activeGameObject = player;
             Debug.Log($"[Project Velocity] Movement test built at {ScenePath}. Press Play to test. " +
+                      "The wall traversal section is behind the spawn: turn around and run south. " +
                       "Tune movement on the Player (Velocity Motor) and camera on the Main Camera (Velocity Camera).");
         }
 
@@ -104,7 +105,8 @@ namespace ProjectVelocity.EditorTools
             Transform root = Group("Playground", null);
 
             // Ground slab, top surface at y = 0. Falling off its edges respawns you.
-            Box("Ground", root, -130f, 130f, -1f, 0f, -70f, 470f, p.Floor);
+            // It reaches further south (behind the spawn) to make room for the wall traversal section.
+            Box("Ground", root, -130f, 130f, -1f, 0f, -350f, 470f, p.Floor);
 
             // A: long straight from the spawn, lined with pillars every 10 m (red, taller ones every 50 m).
             Transform straight = Group("A - Long Straight", root);
@@ -185,6 +187,65 @@ namespace ProjectVelocity.EditorTools
             };
             foreach (Vector3 support in supports)
                 Block("Support", elevated, support.x, support.z, 1.2f, 1.2f, support.y, p.Pillar);
+
+            BuildWallSection(root, p);
+        }
+
+        /// <summary>
+        /// G: wall traversal, behind the spawn (turn around and run south). Five lanes, each starting at a pair of red gate
+        /// markers at z = -80. Teal surfaces are built for wall running, but any tall, near-vertical surface works.
+        /// </summary>
+        static void BuildWallSection(Transform root, Palette p)
+        {
+            Transform section = Group("G - Wall Traversal", root);
+
+            float[] laneCentres = { 40f, 0f, -40f, -85f, -115f };
+            foreach (float x in laneCentres)
+            {
+                Pillar(section, new Vector3(x - 8f, 0f, -80f), 1f, 6f, p.Marker);
+                Pillar(section, new Vector3(x + 8f, 0f, -80f), 1f, 6f, p.Marker);
+            }
+
+            // G1: long parallel walls 8 m apart: wall run, wall jump across, repeat for 160 m.
+            Transform parallel = Group("G1 - Parallel Walls", section);
+            Box("East Wall", parallel, 44f, 45f, 0f, 10f, -260f, -100f, p.Wall);
+            Box("West Wall", parallel, 35f, 36f, 0f, 10f, -260f, -100f, p.Wall);
+
+            // G2: the full chain. Kick ramp → jump → boost (wall A floats 4 m up, too high without the boost) →
+            // wall run A → wall jump across to B → wall run B → carry off its end onto the finish platform → land.
+            Transform route = Group("G2 - Wall Route", section);
+            Ramp("Takeoff Ramp", route, new Vector3(0f, 0f, -100f), 180f, 8f, 8f, 2f, p.Ramp);
+            Box("Wall A (4-14 m)", route, -7f, -6f, 4f, 14f, -170f, -130f, p.Wall);
+            Box("Wall B (3-14 m)", route, 6f, 7f, 3f, 14f, -215f, -180f, p.Wall);
+            Slab("Finish Platform (3 m)", route, -6f, 7f, -242f, -217f, 3f, p.Elevated);
+            Block("Support", route, 0.5f, -229.5f, 1.2f, 1.2f, 2f, p.Pillar);
+            Ramp("Finish Ramp Down", route, new Vector3(0.5f, 0f, -254f), 0f, 13f, 12f, 3f, p.Ramp);
+
+            // G3: angled entries (a glancing 25° hit runs along the wall, a steep 55° hit also carries you up it),
+            // then head-on climbs: a 9 m block you can climb onto, and a 24 m wall too tall to climb (jump off or fall).
+            Transform climb = Group("G3 - Angled Walls & Climbs", section);
+            AngledWall("Angled Wall 25°", climb, -40f, -150f, 25f, 40f, 10f, p.Wall);
+            AngledWall("Angled Wall 55°", climb, -40f, -200f, 55f, 30f, 12f, p.Wall);
+            Block("Climb Block (9 m)", climb, -47f, -257f, 10f, 10f, 9f, p.Wall);
+            Block("Tall Wall (24 m)", climb, -32f, -259f, 12f, 6f, 24f, p.Wall);
+
+            // G4: one wall line broken by growing gaps (10, 15, 20 m): carry speed across, or kick out and steer back in.
+            Transform gaps = Group("G4 - Wall-to-Wall Gaps", section);
+            Box("Gap Wall 1", gaps, -121f, -120f, 0f, 10f, -140f, -100f, p.Wall);
+            Box("Gap Wall 2 (10 m gap)", gaps, -121f, -120f, 0f, 10f, -190f, -150f, p.Wall);
+            Box("Gap Wall 3 (15 m gap)", gaps, -121f, -120f, 0f, 10f, -245f, -205f, p.Wall);
+            Box("Gap Wall 4 (20 m gap)", gaps, -121f, -120f, 0f, 10f, -305f, -265f, p.Wall);
+
+            // G5: ascending sequence: panels alternate sides 10 m apart, each starting higher; wall jump between them
+            // to climb onto the 6 m platform at the end.
+            Transform ascending = Group("G5 - Ascending Walls", section);
+            Box("Step 1 (0-9 m)", ascending, -91f, -90f, 0f, 9f, -135f, -110f, p.Wall);
+            Box("Step 2 (2-12 m)", ascending, -80f, -79f, 2f, 12f, -160f, -135f, p.Wall);
+            Box("Step 3 (4-15 m)", ascending, -91f, -90f, 4f, 15f, -185f, -160f, p.Wall);
+            Box("Step 4 (6-18 m)", ascending, -80f, -79f, 6f, 18f, -210f, -185f, p.Wall);
+            Slab("Top Platform (6 m)", ascending, -91f, -79f, -237f, -212f, 6f, p.Elevated);
+            Block("Support", ascending, -85f, -224.5f, 1.2f, 1.2f, 5f, p.Pillar);
+            Ramp("Ramp Down", ascending, new Vector3(-85f, 0f, -253f), 0f, 12f, 16f, 6f, p.Ramp);
         }
 
         static Transform Group(string name, Transform parent)
@@ -219,6 +280,16 @@ namespace ProjectVelocity.EditorTools
         static GameObject Pillar(Transform parent, Vector3 position, float width, float height, Material material)
         {
             return Block("Pillar", parent, position.x, position.z, width, width, height, material);
+        }
+
+        /// <summary>1 m thick wall standing on the ground, centred on (x, z), its length turned <paramref name="yaw"/> degrees from north-south.</summary>
+        static GameObject AngledWall(string name, Transform parent, float x, float z, float yaw, float length, float height, Material material)
+        {
+            var size = new Vector3(1f, height, length);
+            var centre = new Vector3(x, height * 0.5f, z);
+            GameObject go = CreateMeshObject(name, parent, centre, Quaternion.Euler(0f, yaw, 0f), GrayboxMeshes.Box(size, centre), material);
+            go.AddComponent<BoxCollider>().size = size;
+            return go;
         }
 
         /// <summary>Ramp whose low edge is centred on <paramref name="lowEdge"/>, rising toward <paramref name="facingYaw"/>.</summary>
@@ -366,11 +437,12 @@ namespace ProjectVelocity.EditorTools
             public Material Tower;
             public Material Pillar;
             public Material Marker;
+            public Material Wall;
             public Material PlayerBody;
             public Material PlayerVisor;
         }
 
-        // Colour-coded for readability only: orange = ramps, blue = elevated path, green = towers, red = markers.
+        // Colour-coded for readability only: orange = ramps, blue = elevated path, green = towers, red = markers, teal = wall-run walls.
         static Palette CreatePalette()
         {
             Texture2D grid = LoadOrCreateGridTexture();
@@ -383,6 +455,7 @@ namespace ProjectVelocity.EditorTools
                 Tower = Mat("Graybox_Tower", new Color(0.50f, 0.76f, 0.46f), grid),
                 Pillar = Mat("Graybox_Pillar", new Color(0.24f, 0.26f, 0.30f), null),
                 Marker = Mat("Graybox_Marker", new Color(0.92f, 0.33f, 0.30f), null),
+                Wall = Mat("Graybox_Wall", new Color(0.30f, 0.72f, 0.68f), grid),
                 PlayerBody = Mat("Player_Body", new Color(1f, 0.82f, 0.2f), null),
                 PlayerVisor = Mat("Player_Visor", new Color(0.08f, 0.09f, 0.11f), null),
             };
