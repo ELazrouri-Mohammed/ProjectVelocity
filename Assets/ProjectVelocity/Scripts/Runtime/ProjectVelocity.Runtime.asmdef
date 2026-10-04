@@ -2,7 +2,8 @@
     "name": "ProjectVelocity.Runtime",
     "rootNamespace": "ProjectVelocity",
     "references": [
-        "Unity.InputSystem"
+        "Unity.InputSystem",
+        "UnityEngine.UI"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

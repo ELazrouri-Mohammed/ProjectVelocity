@@ -43,7 +43,7 @@ namespace ProjectVelocity
             boost.AddBinding("<Gamepad>/rightShoulder");
             boost.AddBinding("<Gamepad>/buttonEast");
 
-            // Temporary desktop binding for the traversal-target button (a touch button later).
+            // Desktop binding for the traversal-target button (ACTION on touch screens).
             activateTarget = new InputAction("ActivateTarget", InputActionType.Button, "<Keyboard>/e");
             activateTarget.AddBinding("<Gamepad>/buttonWest");
 
@@ -79,6 +79,9 @@ namespace ProjectVelocity
             freeCursor?.Dispose();
             captureCursor?.Dispose();
         }
+
+        public override string ControlsHint =>
+            "WASD move   Mouse look   Space jump / wall jump   Shift boost   E target   R respawn   Esc free cursor";
 
         public override PlayerIntent ReadIntent()
         {

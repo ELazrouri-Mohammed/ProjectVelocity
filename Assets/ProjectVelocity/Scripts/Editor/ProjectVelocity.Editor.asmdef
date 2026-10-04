@@ -2,7 +2,8 @@
     "name": "ProjectVelocity.Editor",
     "rootNamespace": "ProjectVelocity.EditorTools",
     "references": [
-        "ProjectVelocity.Runtime"
+        "ProjectVelocity.Runtime",
+        "UnityEngine.UI"
     ],
     "includePlatforms": [
         "Editor"

@@ -5,6 +5,7 @@ using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.SceneManagement;
+using UnityEngine.UI;
 
 namespace ProjectVelocity.EditorTools
 {
@@ -19,11 +20,16 @@ namespace ProjectVelocity.EditorTools
         public const string ScenePath = Root + "/Scenes/MovementTest.unity";
         const string MovementTuningPath = Root + "/Settings/MovementTuning.asset";
         const string CameraTuningPath = Root + "/Settings/CameraTuning.asset";
+        const string TouchControlsTuningPath = Root + "/Settings/TouchControlsTuning.asset";
         const string GeneratedFolder = Root + "/Generated";
         const string GridTexturePath = GeneratedFolder + "/GrayboxGrid.png";
+        const string TouchDiscPath = GeneratedFolder + "/TouchDisc.png";
+        const string TouchPadPath = GeneratedFolder + "/TouchPad.png";
 
         // Built-in "Ignore Raycast" layer: keeps the player out of its own ground and camera probes.
         const int PlayerLayer = 2;
+        // Built-in "UI" layer.
+        const int UILayer = 5;
 
         static readonly Vector3 SpawnPoint = new Vector3(0f, 0.1f, 0f);
         static readonly Color SkyColor = new Color(0.70f, 0.77f, 0.85f);
@@ -75,6 +81,12 @@ namespace ProjectVelocity.EditorTools
             SelectAsset(LoadOrCreateAsset<CameraTuning>(CameraTuningPath));
         }
 
+        [MenuItem("Tools/Project Velocity/Select Touch Controls Tuning", priority = 22)]
+        public static void SelectTouchControlsTuning()
+        {
+            SelectAsset(LoadOrCreateAsset<TouchControlsTuning>(TouchControlsTuningPath));
+        }
+
         public static void Build()
         {
             EnsureFolder(Root + "/Scenes");
@@ -83,13 +95,15 @@ namespace ProjectVelocity.EditorTools
 
             MovementTuning movementTuning = LoadOrCreateAsset<MovementTuning>(MovementTuningPath);
             CameraTuning cameraTuning = LoadOrCreateAsset<CameraTuning>(CameraTuningPath);
+            TouchControlsTuning touchTuning = LoadOrCreateAsset<TouchControlsTuning>(TouchControlsTuningPath);
             Palette palette = CreatePalette();
 
             Scene scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             SetupLighting();
             BuildPlayground(palette);
 
-            GameObject player = BuildPlayer(palette, movementTuning);
+            TouchControlsView touchControls = BuildTouchControls();
+            GameObject player = BuildPlayer(palette, movementTuning, touchTuning, touchControls);
             var motor = player.GetComponent<VelocityMotor>();
             VelocityCamera cameraRig = BuildCamera(player, motor, cameraTuning);
             player.GetComponent<VelocityPlayerController>().CameraRig = cameraRig;
@@ -104,7 +118,9 @@ namespace ProjectVelocity.EditorTools
                       "The wall traversal section is behind the spawn: turn around and run south. " +
                       "The traversal target section is behind the spawn to the left: turn around and run south-east; " +
                       "E launches you through the selected (pink) target. " +
-                      "Tune movement and targets on the Player (Velocity Motor) and camera on the Main Camera (Velocity Camera).");
+                      "Tune movement and targets on the Player (Velocity Motor) and camera on the Main Camera (Velocity Camera). " +
+                      "Touch controls appear on Android/iOS and in the Device Simulator; to try them in the Game view, set " +
+                      "Editor Controls to Mobile on the Player's Input Source Selector. Tune them on the Player (Mobile Input Source).");
         }
 
         // ------------------------------------------------------------------ Playground
@@ -417,7 +433,7 @@ namespace ProjectVelocity.EditorTools
 
         // ------------------------------------------------------------------ Player & camera
 
-        static GameObject BuildPlayer(Palette p, MovementTuning tuning)
+        static GameObject BuildPlayer(Palette p, MovementTuning tuning, TouchControlsTuning touchTuning, TouchControlsView touchControls)
         {
             var player = new GameObject("Player");
             player.transform.position = SpawnPoint;
@@ -434,15 +450,25 @@ namespace ProjectVelocity.EditorTools
             var motor = player.AddComponent<VelocityMotor>();
             motor.Tuning = tuning;
 
-            var input = player.AddComponent<DesktopInputSource>();
+            // Both input sources live on the player; the selector turns on the one for the platform at startup.
+            var desktopInput = player.AddComponent<DesktopInputSource>();
+            var mobileInput = player.AddComponent<MobileInputSource>();
+            mobileInput.Tuning = touchTuning;
+            mobileInput.View = touchControls;
+            mobileInput.enabled = false;
 
             var targeting = player.AddComponent<TraversalTargeting>();
             targeting.Motor = motor;
 
             var playerController = player.AddComponent<VelocityPlayerController>();
             playerController.Motor = motor;
-            playerController.InputSource = input;
+            playerController.InputSource = desktopInput;
             playerController.Targeting = targeting;
+
+            var selector = player.AddComponent<InputSourceSelector>();
+            selector.Player = playerController;
+            selector.DesktopInput = desktopInput;
+            selector.MobileInput = mobileInput;
 
             // Placeholder body: a capsule with a dark visor so facing direction is readable.
             Transform visualRoot = Group("Visual", player.transform);
@@ -456,6 +482,7 @@ namespace ProjectVelocity.EditorTools
             var hud = player.AddComponent<MovementDebugHUD>();
             hud.Motor = motor;
             hud.Targeting = targeting;
+            hud.Player = playerController;
 
             SetLayerRecursively(player.transform, PlayerLayer);
             return player;
@@ -503,6 +530,136 @@ namespace ProjectVelocity.EditorTools
             Vector3 pivot = player.transform.position + Vector3.up * tuning.pivotHeight;
             go.transform.SetPositionAndRotation(pivot + rotation * Vector3.back * tuning.distance, rotation);
             return rig;
+        }
+
+        // ------------------------------------------------------------------ Touch controls
+
+        /// <summary>
+        /// Prototype landscape touch controls: a movement stick (left) and JUMP / BOOST / ACTION around the right thumb, plus a
+        /// small debug RESET. Hidden until the Mobile Input Source is in use. Positions and sizes come from Touch Controls Tuning
+        /// at runtime (inside the safe area), so the placement here is only a preview.
+        /// </summary>
+        static TouchControlsView BuildTouchControls()
+        {
+            Sprite disc = LoadOrCreateCircleSprite(TouchDiscPath, false);
+            Sprite pad = LoadOrCreateCircleSprite(TouchPadPath, true);
+            Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+
+            var go = new GameObject("Touch Controls");
+            go.layer = UILayer;
+            var canvas = go.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            canvas.sortingOrder = 10;
+            canvas.enabled = false;
+
+            RectTransform stick = UIImage("Movement Stick", go.transform, pad, Color.white, new Vector2(300f, 280f), 300f);
+            RectTransform knob = UIImage("Knob", stick, disc, Color.white, Vector2.zero, 135f);
+            knob.anchorMin = knob.anchorMax = new Vector2(0.5f, 0.5f);
+            knob.anchoredPosition = Vector2.zero;
+
+            // Colour-coded: violet ACTION matches the traversal targets it launches through.
+            RectTransform jump = UIButton("Jump", go.transform, pad, new Color(0.85f, 0.95f, 1f), "JUMP", 34, font, new Vector2(1670f, 240f), 105f);
+            RectTransform boost = UIButton("Boost", go.transform, pad, new Color(1f, 0.72f, 0.35f), "BOOST", 28, font, new Vector2(1400f, 180f), 82f);
+            RectTransform action = UIButton("Action", go.transform, pad, new Color(0.82f, 0.55f, 1f), "ACTION", 26, font, new Vector2(1695f, 495f), 82f);
+            RectTransform reset = UIButton("Reset (debug)", go.transform, pad, new Color(0.8f, 0.8f, 0.8f), "RESET", 18, font, new Vector2(1830f, 1000f), 46f);
+
+            var view = go.AddComponent<TouchControlsView>();
+            view.SetParts(stick, knob, new[] { jump, boost, action, reset });
+            return view;
+        }
+
+        static RectTransform UIImage(string name, Transform parent, Sprite sprite, Color color, Vector2 position, float diameter)
+        {
+            var go = new GameObject(name, typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+            go.layer = UILayer;
+            var rect = (RectTransform)go.transform;
+            rect.SetParent(parent, false);
+            rect.anchorMin = rect.anchorMax = Vector2.zero;
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.anchoredPosition = position;
+            rect.sizeDelta = new Vector2(diameter, diameter);
+
+            var image = go.GetComponent<Image>();
+            image.sprite = sprite;
+            image.color = color;
+            image.raycastTarget = false;
+            return rect;
+        }
+
+        static RectTransform UIButton(string name, Transform parent, Sprite sprite, Color color, string label, int fontSize, Font font,
+            Vector2 position, float radius)
+        {
+            RectTransform button = UIImage(name, parent, sprite, color, position, radius * 2f);
+
+            var go = new GameObject("Label", typeof(RectTransform), typeof(CanvasRenderer), typeof(Text));
+            go.layer = UILayer;
+            var rect = (RectTransform)go.transform;
+            rect.SetParent(button, false);
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = Vector2.one;
+            rect.offsetMin = rect.offsetMax = Vector2.zero;
+
+            var text = go.GetComponent<Text>();
+            text.text = label;
+            text.font = font;
+            text.fontSize = fontSize;
+            text.fontStyle = FontStyle.Bold;
+            text.alignment = TextAnchor.MiddleCenter;
+            text.horizontalOverflow = HorizontalWrapMode.Overflow;
+            text.verticalOverflow = VerticalWrapMode.Overflow;
+            text.color = new Color(1f, 1f, 1f, 0.9f);
+            text.raycastTarget = false;
+            return button;
+        }
+
+        /// <summary>White anti-aliased circle sprite: solid (stick knob), or a soft fill with a bright rim (stick base, buttons).</summary>
+        static Sprite LoadOrCreateCircleSprite(string path, bool rimmed)
+        {
+            var existing = AssetDatabase.LoadAssetAtPath<Sprite>(path);
+            if (existing != null)
+                return existing;
+
+            const int size = 256;
+            const float radius = size * 0.5f - 2f;
+            const float rimWidth = 10f;
+            const float fillAlpha = 0.3f;
+            var pixels = new Color32[size * size];
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float distance = Vector2.Distance(new Vector2(x + 0.5f, y + 0.5f), new Vector2(size * 0.5f, size * 0.5f));
+                    float inside = Mathf.Clamp01(radius - distance + 0.5f);
+                    float alpha = inside;
+                    if (rimmed)
+                    {
+                        float rim = Mathf.Clamp01(distance - (radius - rimWidth) + 0.5f);
+                        alpha *= Mathf.Lerp(fillAlpha, 1f, rim);
+                    }
+                    pixels[y * size + x] = new Color32(255, 255, 255, (byte)Mathf.RoundToInt(alpha * 255f));
+                }
+            }
+
+            var texture = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            texture.SetPixels32(pixels);
+            texture.Apply();
+            File.WriteAllBytes(path, texture.EncodeToPNG());
+            UnityEngine.Object.DestroyImmediate(texture);
+
+            AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceSynchronousImport);
+            if (AssetImporter.GetAtPath(path) is TextureImporter importer)
+            {
+                importer.textureType = TextureImporterType.Sprite;
+                importer.spriteImportMode = SpriteImportMode.Single;
+                importer.alphaIsTransparency = true;
+                importer.mipmapEnabled = false;
+                importer.wrapMode = TextureWrapMode.Clamp;
+                importer.filterMode = FilterMode.Bilinear;
+                importer.textureCompression = TextureImporterCompression.Uncompressed;
+                importer.SaveAndReimport();
+            }
+
+            return AssetDatabase.LoadAssetAtPath<Sprite>(path);
         }
 
         // ------------------------------------------------------------------ Look
