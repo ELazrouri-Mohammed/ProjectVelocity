@@ -17,7 +17,7 @@ MonoBehaviour:
   startPitch: 12
   minPitch: -30
   maxPitch: 70
-  lookSensitivity: 0.12
+  lookSensitivity: 0.35
   stickLookSpeed: 220
   invertY: 0
   followLag: 0.02
