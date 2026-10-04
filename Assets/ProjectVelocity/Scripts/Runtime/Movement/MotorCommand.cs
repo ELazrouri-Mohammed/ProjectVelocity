@@ -19,5 +19,29 @@ namespace ProjectVelocity
 
         /// <summary>Traversal target to launch through this frame, or null. Chosen by <see cref="TraversalTargeting"/>.</summary>
         public TraversalTarget ActivateTarget;
+
+        /// <summary>Lunge to start this frame, or none (default). Requested by <see cref="CombatController"/>.</summary>
+        public MotorLunge Lunge;
+    }
+
+    /// <summary>
+    /// A short dash that closes in on a point (see VelocityMotor.Lunge.cs). The motor only moves; whoever asks for it
+    /// decides what the point is and when it has been reached.
+    /// </summary>
+    public struct MotorLunge
+    {
+        /// <summary>World-space point to close in on.</summary>
+        public Vector3 Goal;
+
+        /// <summary>Lunge speed (m/s). Moving faster already keeps that speed instead: a lunge never slows you down.</summary>
+        public float Speed;
+
+        /// <summary>Longest the lunge may last (s). 0 = no lunge.</summary>
+        public float Duration;
+
+        /// <summary>How fast the current direction of travel turns toward the point (degrees per second).</summary>
+        public float TurnRate;
+
+        public bool IsRequested => Duration > 0f;
     }
 }

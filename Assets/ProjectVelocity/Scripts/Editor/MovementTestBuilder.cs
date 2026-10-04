@@ -21,6 +21,7 @@ namespace ProjectVelocity.EditorTools
         const string MovementTuningPath = Root + "/Settings/MovementTuning.asset";
         const string CameraTuningPath = Root + "/Settings/CameraTuning.asset";
         const string TouchControlsTuningPath = Root + "/Settings/TouchControlsTuning.asset";
+        const string CombatTuningPath = Root + "/Settings/CombatTuning.asset";
         const string GeneratedFolder = Root + "/Generated";
         const string GridTexturePath = GeneratedFolder + "/GrayboxGrid.png";
         const string TouchDiscPath = GeneratedFolder + "/TouchDisc.png";
@@ -39,6 +40,21 @@ namespace ProjectVelocity.EditorTools
         const float TargetRingRadius = 1.45f;
         // Extra Upward Bias for the targets that redirect you upward (added to Target Upward Bias in Movement Tuning).
         const float UpwardTargetBias = 0.35f;
+
+        // Placeholder enemy (Sentinel): a bright red glowing diamond about 2 m tall (half width, half height, m) inside a tilted
+        // ring, centred at chest height when it sits on the ground, plus a few hidden shards for its death burst.
+        const float EnemyCoreRadius = 0.7f;
+        const float EnemyCoreHalfHeight = 1.0f;
+        const float EnemyRingRadius = 1.15f;
+        const float GroundEnemyHeight = 1.4f;
+        const int EnemyShardCount = 6;
+        const float EnemyShardSize = 0.28f;
+
+        // Slash arc the sword leaves (radii in m), at the height the sword arm swings through.
+        const float SlashHeight = 1.25f;
+        const float SlashInnerRadius = 0.6f;
+        const float SlashOuterRadius = 2.4f;
+        const float SlashArcDegrees = 150f;
 
         [MenuItem("Tools/Project Velocity/Build Movement Test", priority = 0)]
         public static void BuildFromMenu()
@@ -87,6 +103,12 @@ namespace ProjectVelocity.EditorTools
             SelectAsset(LoadOrCreateAsset<TouchControlsTuning>(TouchControlsTuningPath));
         }
 
+        [MenuItem("Tools/Project Velocity/Select Combat Tuning", priority = 23)]
+        public static void SelectCombatTuning()
+        {
+            SelectAsset(LoadOrCreateAsset<CombatTuning>(CombatTuningPath));
+        }
+
         public static void Build()
         {
             EnsureFolder(Root + "/Scenes");
@@ -96,19 +118,26 @@ namespace ProjectVelocity.EditorTools
             MovementTuning movementTuning = LoadOrCreateAsset<MovementTuning>(MovementTuningPath);
             CameraTuning cameraTuning = LoadOrCreateAsset<CameraTuning>(CameraTuningPath);
             TouchControlsTuning touchTuning = LoadOrCreateAsset<TouchControlsTuning>(TouchControlsTuningPath);
-            Palette palette = CreatePalette();
+            CombatTuning combatTuning = LoadOrCreateAsset<CombatTuning>(CombatTuningPath);
 
+            // The palette's generated meshes live only in memory until the scene saves them, so they must be made after the
+            // new scene opens: opening it unloads unused in-memory objects, and a mesh made before that is destroyed and saved
+            // as nothing (an invisible object).
             Scene scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+            Palette palette = CreatePalette();
             SetupLighting();
             BuildPlayground(palette);
 
             TouchControlsView touchControls = BuildTouchControls();
-            GameObject player = BuildPlayer(palette, movementTuning, touchTuning, touchControls);
+            GameObject player = BuildPlayer(palette, movementTuning, touchTuning, touchControls, combatTuning);
             var motor = player.GetComponent<VelocityMotor>();
             VelocityCamera cameraRig = BuildCamera(player, motor, cameraTuning);
             player.GetComponent<VelocityPlayerController>().CameraRig = cameraRig;
             player.GetComponent<TraversalTargeting>().Viewpoint = cameraRig.transform;
+            player.GetComponent<CombatTargeting>().Viewpoint = cameraRig.transform;
+            player.GetComponent<CombatController>().CameraRig = cameraRig;
 
+            CheckMeshes(scene);
             EditorSceneManager.SaveScene(scene, ScenePath);
             AddSceneToBuildSettings();
             AssetDatabase.SaveAssets();
@@ -118,7 +147,10 @@ namespace ProjectVelocity.EditorTools
                       "The wall traversal section is behind the spawn: turn around and run south. " +
                       "The traversal target section is behind the spawn to the left: turn around and run south-east; " +
                       "E launches you through the selected (pink) target. " +
-                      "Tune movement and targets on the Player (Velocity Motor) and camera on the Main Camera (Velocity Camera). " +
+                      "The combat section is to the left of the spawn: turn left and run west; Left Mouse or F attacks the " +
+                      "selected (yellow) enemy. " +
+                      "Tune movement and targets on the Player (Velocity Motor), combat on the Player (Combat Controller) and " +
+                      "camera on the Main Camera (Velocity Camera). " +
                       "Touch controls appear on Android/iOS and in the Device Simulator; to try them in the Game view, set " +
                       "Editor Controls to Mobile on the Player's Input Source Selector. Tune them on the Player (Mobile Input Source).");
         }
@@ -215,6 +247,7 @@ namespace ProjectVelocity.EditorTools
 
             BuildWallSection(root, p);
             BuildTargetSection(root, p);
+            BuildCombatSection(root, p);
         }
 
         /// <summary>
@@ -341,6 +374,83 @@ namespace ProjectVelocity.EditorTools
         }
 
         /// <summary>
+        /// I: blade combat, to the left of the spawn (turn left and run west). Two lanes, each starting at a pair of red gate
+        /// markers at x = -15, running onto extra ground west of the main slab, clear of the routes to G and H.
+        /// Red diamonds are Sentinels: the selected one turns yellow and pulses, and Attack lunges at it and cuts it down.
+        /// They come back a few seconds after dying, and all at once when you respawn. Falls land on the ground, never off the level.
+        /// </summary>
+        static void BuildCombatSection(Transform root, Palette p)
+        {
+            Transform section = Group("I - Combat", root);
+
+            // Extra ground west of the main slab, for the far end of both lanes.
+            Box("Ground (combat)", section, -280f, -130f, -1f, 0f, -60f, 30f, p.Floor);
+
+            float[] laneCentres = { 0f, -32f };
+            foreach (float z in laneCentres)
+            {
+                Pillar(section, new Vector3(-15f, 0f, z - 8f), 1f, 6f, p.Marker);
+                Pillar(section, new Vector3(-15f, 0f, z + 8f), 1f, 6f, p.Marker);
+            }
+
+            // I1: one test at a time down a straight lane, chest high unless noted.
+            // A: straight ahead, just past the gate, in full view from the lane entrance.
+            // B: off to the right, then to the left, while running down the middle.
+            // C: above a hurdle, out of reach from the ground: jump the hurdle and cut it on the way over.
+            // D: past the end of the wall on the right, too high to reach from the ground or the wall: wall run, wall jump in
+            // the last stretch of the wall, cut it.
+            Transform basics = Group("I1 - Combat Basics", section);
+            Enemy("Sentinel A - Straight Ahead", basics, new Vector3(-28f, GroundEnemyHeight, 0f), p);
+            Enemy("Sentinel B1 - Right", basics, new Vector3(-82f, GroundEnemyHeight, 4.5f), p);
+            Enemy("Sentinel B2 - Left", basics, new Vector3(-112f, GroundEnemyHeight, -4.5f), p);
+            Block("Hurdle (1.2 m)", basics, -145f, 0f, 2f, 12f, 1.2f, p.Block);
+            Enemy("Sentinel C - After A Jump (5.4 m)", basics, new Vector3(-145f, 5.4f, 0f), p);
+            Box("Wall (0-12 m)", basics, -210f, -180f, 0f, 12f, 7f, 8f, p.Wall);
+            Enemy("Sentinel D - After A Wall Jump (7.5 m)", basics, new Vector3(-216f, 7.5f, 1f), p);
+            Pillar(basics, new Vector3(-250f, 0f, -8f), 1f, 6f, p.Marker);
+            Pillar(basics, new Vector3(-250f, 0f, 8f), 1f, 6f, p.Marker);
+
+            // I2: the movement-combat chain. Kick ramp → jump → boost (the wall floats 4 m up, too high without the boost) →
+            // wall run → wall jump off the back half of the wall → cut the Sentinel (jump off earlier and air boost to it: the kill
+            // gives the boost back) → boost → traversal target → land on the 7 m finish.
+            Transform chain = Group("I2 - Movement-Combat Chain", section);
+            Ramp("Takeoff Ramp", chain, new Vector3(-60f, 0f, -32f), 270f, 8f, 8f, 2f, p.Ramp);
+            Box("Wall (4-14 m)", chain, -130f, -90f, 4f, 14f, -40f, -39f, p.Wall);
+            Enemy("Sentinel - After The Wall Jump (8.5 m)", chain, new Vector3(-140f, 8.5f, -33f), p);
+            Target("Target - After The Kill", chain, new Vector3(-185f, 10f, -32f), p);
+            Box("Finish (7 m)", chain, -258f, -200f, 0f, 7f, -44f, -20f, p.Elevated);
+        }
+
+        /// <summary>
+        /// Placeholder enemy (Sentinel): a glowing diamond inside a tilted dark ring, hovering in place, plus hidden shards for
+        /// its death burst. No collider, so it never stops the player: the blade measures its reach to the enemy's hurtbox.
+        /// </summary>
+        static CombatEnemy Enemy(string name, Transform parent, Vector3 position, Palette p)
+        {
+            var go = new GameObject(name);
+            go.transform.SetParent(parent, false);
+            go.transform.position = position;
+            var enemy = go.AddComponent<CombatEnemy>();
+
+            Transform visual = Group("Visual", go.transform);
+            GameObject core = CreateMeshObject("Core", visual, position, Quaternion.identity, p.EnemyCore, p.EnemyIdle);
+            CreateMeshObject("Ring", visual, position, Quaternion.Euler(70f, 0f, 0f), p.EnemyRing, p.Pillar);
+
+            Transform shardGroup = Group("Shards", go.transform);
+            var shards = new Transform[EnemyShardCount];
+            for (int i = 0; i < shards.Length; i++)
+            {
+                GameObject shard = Primitive(PrimitiveType.Cube, $"Shard {i + 1}", shardGroup, Vector3.zero, Vector3.one * EnemyShardSize, p.EnemyIdle);
+                shard.GetComponent<MeshRenderer>().shadowCastingMode = ShadowCastingMode.Off;
+                shard.SetActive(false);
+                shards[i] = shard.transform;
+            }
+
+            enemy.SetLook(visual, new[] { core.GetComponent<Renderer>() }, p.EnemyIdle, p.EnemySelected, p.EnemyHit, shards);
+            return enemy;
+        }
+
+        /// <summary>
         /// Placeholder traversal target: a glowing orb inside a ring that always faces the camera. No collider, so the
         /// player flies straight through it.
         /// </summary>
@@ -433,7 +543,8 @@ namespace ProjectVelocity.EditorTools
 
         // ------------------------------------------------------------------ Player & camera
 
-        static GameObject BuildPlayer(Palette p, MovementTuning tuning, TouchControlsTuning touchTuning, TouchControlsView touchControls)
+        static GameObject BuildPlayer(Palette p, MovementTuning tuning, TouchControlsTuning touchTuning, TouchControlsView touchControls,
+            CombatTuning combatTuning)
         {
             var player = new GameObject("Player");
             player.transform.position = SpawnPoint;
@@ -460,32 +571,142 @@ namespace ProjectVelocity.EditorTools
             var targeting = player.AddComponent<TraversalTargeting>();
             targeting.Motor = motor;
 
+            var combatTargeting = player.AddComponent<CombatTargeting>();
+            combatTargeting.Motor = motor;
+
+            var combat = player.AddComponent<CombatController>();
+            combat.Tuning = combatTuning;
+            combat.Motor = motor;
+            combat.Targeting = combatTargeting;
+
             var playerController = player.AddComponent<VelocityPlayerController>();
             playerController.Motor = motor;
             playerController.InputSource = desktopInput;
             playerController.Targeting = targeting;
+            playerController.Combat = combat;
 
             var selector = player.AddComponent<InputSourceSelector>();
             selector.Player = playerController;
             selector.DesktopInput = desktopInput;
             selector.MobileInput = mobileInput;
 
-            // Placeholder body: a capsule with a dark visor so facing direction is readable.
+            // Placeholder humanoid combat proxy (presentation only): primitive limbs on empty joints, with a dark visor so facing
+            // is readable and the sword in the right hand. Character Visual turns and leans it, Humanoid Visual poses its limbs,
+            // Blade Visual swings the sword arm.
             Transform visualRoot = Group("Visual", player.transform);
-            Primitive(PrimitiveType.Capsule, "Body", visualRoot, new Vector3(0f, 0.9f, 0f), new Vector3(0.8f, 0.9f, 0.8f), p.PlayerBody);
-            Primitive(PrimitiveType.Cube, "Visor (front)", visualRoot, new Vector3(0f, 1.45f, 0.3f), new Vector3(0.55f, 0.16f, 0.25f), p.PlayerVisor);
+            HumanoidVisual.Rig rig = BuildHumanoid(visualRoot, p);
 
             var visual = player.AddComponent<CharacterVisual>();
             visual.Motor = motor;
             visual.VisualRoot = visualRoot;
 
+            BladeVisual blade = BuildSwordArm(player.transform, rig.rightShoulderMount, p);
+            combat.Blade = blade;
+
+            var humanoid = player.AddComponent<HumanoidVisual>();
+            humanoid.Motor = motor;
+            humanoid.Blade = blade;
+            humanoid.SetRig(rig);
+
             var hud = player.AddComponent<MovementDebugHUD>();
             hud.Motor = motor;
             hud.Targeting = targeting;
             hud.Player = playerController;
+            hud.Combat = combat;
 
             SetLayerRecursively(player.transform, PlayerLayer);
             return player;
+        }
+
+        /// <summary>
+        /// Placeholder humanoid, about 1.8 m tall like the character controller, slim and athletic: primitive limbs (yellow suit,
+        /// dark hands, feet, shorts and neck) on empty joint pivots that Humanoid Visual poses, limbs hanging along -Y. No
+        /// colliders: the controller's capsule still does all the moving. The right shoulder only gets a mount here; the sword
+        /// arm hangs from it (see <see cref="BuildSwordArm"/>).
+        /// </summary>
+        static HumanoidVisual.Rig BuildHumanoid(Transform visualRoot, Palette p)
+        {
+            var rig = new HumanoidVisual.Rig();
+
+            rig.hips = Joint("Hips", visualRoot, new Vector3(0f, 0.95f, 0f));
+            Primitive(PrimitiveType.Cube, "Pelvis", rig.hips, Vector3.zero, new Vector3(0.28f, 0.17f, 0.18f), p.PlayerAccent);
+
+            rig.spine = Joint("Spine", rig.hips, new Vector3(0f, 0.08f, 0f));
+            Primitive(PrimitiveType.Capsule, "Waist", rig.spine, new Vector3(0f, 0.1f, 0f), new Vector3(0.24f, 0.12f, 0.17f), p.PlayerBody);
+            Primitive(PrimitiveType.Capsule, "Chest", rig.spine, new Vector3(0f, 0.27f, 0f), new Vector3(0.36f, 0.2f, 0.21f), p.PlayerBody);
+            Primitive(PrimitiveType.Capsule, "Neck", rig.spine, new Vector3(0f, 0.5f, 0f), new Vector3(0.09f, 0.06f, 0.09f), p.PlayerAccent);
+
+            rig.head = Joint("Head", rig.spine, new Vector3(0f, 0.56f, 0f));
+            Primitive(PrimitiveType.Sphere, "Skull", rig.head, new Vector3(0f, 0.12f, 0f), new Vector3(0.21f, 0.25f, 0.23f), p.PlayerBody);
+            Primitive(PrimitiveType.Cube, "Visor (front)", rig.head, new Vector3(0f, 0.14f, 0.1f), new Vector3(0.17f, 0.06f, 0.06f), p.PlayerVisor);
+
+            rig.leftShoulder = Joint("Shoulder L", rig.spine, new Vector3(-0.21f, 0.44f, 0f));
+            Limb("Upper Arm L", rig.leftShoulder, 0.3f, 0.085f, p.PlayerBody);
+            rig.leftElbow = Joint("Elbow L", rig.leftShoulder, new Vector3(0f, -0.3f, 0f));
+            Limb("Forearm L", rig.leftElbow, 0.26f, 0.075f, p.PlayerBody);
+            Primitive(PrimitiveType.Sphere, "Hand L", rig.leftElbow, new Vector3(0f, -0.3f, 0f), Vector3.one * 0.09f, p.PlayerAccent);
+
+            rig.rightShoulderMount = Joint("Shoulder R", rig.spine, new Vector3(0.21f, 0.44f, 0f));
+
+            BuildLeg("L", -1f, rig.hips, p, out rig.leftHip, out rig.leftKnee, out rig.leftAnkle);
+            BuildLeg("R", 1f, rig.hips, p, out rig.rightHip, out rig.rightKnee, out rig.rightAnkle);
+            return rig;
+        }
+
+        /// <summary>Thigh, shin and foot on hip, knee and ankle joints. <paramref name="side"/> -1 = left, 1 = right.</summary>
+        static void BuildLeg(string name, float side, Transform hips, Palette p, out Transform hip, out Transform knee, out Transform ankle)
+        {
+            hip = Joint($"Hip {name}", hips, new Vector3(0.1f * side, -0.03f, 0f));
+            Limb($"Thigh {name}", hip, 0.44f, 0.13f, p.PlayerBody);
+            knee = Joint($"Knee {name}", hip, new Vector3(0f, -0.44f, 0f));
+            Limb($"Shin {name}", knee, 0.41f, 0.1f, p.PlayerBody);
+            ankle = Joint($"Ankle {name}", knee, new Vector3(0f, -0.41f, 0f));
+            Primitive(PrimitiveType.Cube, $"Foot {name}", ankle, new Vector3(0f, -0.035f, 0.06f), new Vector3(0.09f, 0.07f, 0.24f), p.PlayerAccent);
+        }
+
+        /// <summary>Empty pivot for the humanoid's poses.</summary>
+        static Transform Joint(string name, Transform parent, Vector3 localPosition)
+        {
+            Transform joint = Group(name, parent);
+            joint.localPosition = localPosition;
+            return joint;
+        }
+
+        /// <summary>Capsule limb hanging along -Y from its joint.</summary>
+        static void Limb(string name, Transform joint, float length, float thickness, Material material)
+        {
+            Primitive(PrimitiveType.Capsule, name, joint, new Vector3(0f, -length * 0.5f, 0f), new Vector3(thickness, length * 0.5f, thickness), material);
+        }
+
+        /// <summary>
+        /// The sword arm: upper arm, forearm, hand and a placeholder sword in one straight line along +Z from the right
+        /// shoulder, so Blade Visual swings arm and blade together (the edge leads a horizontal cut). Plus the slash arc it
+        /// leaves, aimed along each attack, so it's a child of the player rather than the body.
+        /// </summary>
+        static BladeVisual BuildSwordArm(Transform player, Transform shoulderMount, Palette p)
+        {
+            Transform arm = Joint("Sword Arm", shoulderMount, Vector3.zero);
+            arm.localRotation = Quaternion.Euler(35f, 160f, 0f); // Blade Visual's rest pose
+            Quaternion alongArm = Quaternion.Euler(90f, 0f, 0f); // turns a capsule's length onto +Z
+            Primitive(PrimitiveType.Capsule, "Upper Arm R", arm, new Vector3(0f, 0f, 0.15f), new Vector3(0.085f, 0.15f, 0.085f), p.PlayerBody)
+                .transform.localRotation = alongArm;
+            Primitive(PrimitiveType.Capsule, "Forearm R", arm, new Vector3(0f, 0f, 0.43f), new Vector3(0.075f, 0.13f, 0.075f), p.PlayerBody)
+                .transform.localRotation = alongArm;
+            Primitive(PrimitiveType.Sphere, "Hand R", arm, new Vector3(0f, 0f, 0.6f), Vector3.one * 0.09f, p.PlayerAccent);
+            Primitive(PrimitiveType.Cube, "Grip", arm, new Vector3(0f, 0f, 0.62f), new Vector3(0.035f, 0.035f, 0.16f), p.PlayerVisor);
+            Primitive(PrimitiveType.Cube, "Guard", arm, new Vector3(0f, 0f, 0.71f), new Vector3(0.2f, 0.045f, 0.04f), p.PlayerVisor);
+            Primitive(PrimitiveType.Cube, "Blade", arm, new Vector3(0f, 0f, 1.255f), new Vector3(0.1f, 0.035f, 1.05f), p.BladeSteel);
+
+            GameObject arc = CreateMeshObject("Slash Arc", player, player.position + Vector3.up * SlashHeight, Quaternion.identity,
+                p.SlashArc, p.SlashFx);
+            var arcRenderer = arc.GetComponent<MeshRenderer>();
+            arcRenderer.shadowCastingMode = ShadowCastingMode.Off;
+            arcRenderer.receiveShadows = false;
+            arcRenderer.enabled = false;
+
+            var blade = player.gameObject.AddComponent<BladeVisual>();
+            blade.SetParts(arm, arcRenderer);
+            return blade;
         }
 
         static GameObject Primitive(PrimitiveType type, string name, Transform parent, Vector3 localPosition, Vector3 localScale, Material material)
@@ -535,8 +756,8 @@ namespace ProjectVelocity.EditorTools
         // ------------------------------------------------------------------ Touch controls
 
         /// <summary>
-        /// Prototype landscape touch controls: a movement stick (left) and JUMP / BOOST / ACTION around the right thumb, plus a
-        /// small debug RESET. Hidden until the Mobile Input Source is in use. Positions and sizes come from Touch Controls Tuning
+        /// Prototype landscape touch controls: a movement stick (left) and JUMP / BOOST / ACTION / ATTACK around the right thumb,
+        /// plus a small debug RESET. Hidden until the Mobile Input Source is in use. Positions and sizes come from Touch Controls Tuning
         /// at runtime (inside the safe area), so the placement here is only a preview.
         /// </summary>
         static TouchControlsView BuildTouchControls()
@@ -557,14 +778,15 @@ namespace ProjectVelocity.EditorTools
             knob.anchorMin = knob.anchorMax = new Vector2(0.5f, 0.5f);
             knob.anchoredPosition = Vector2.zero;
 
-            // Colour-coded: violet ACTION matches the traversal targets it launches through.
+            // Colour-coded: violet ACTION matches the traversal targets it launches through, red ATTACK the enemies it cuts.
             RectTransform jump = UIButton("Jump", go.transform, pad, new Color(0.85f, 0.95f, 1f), "JUMP", 34, font, new Vector2(1670f, 240f), 105f);
             RectTransform boost = UIButton("Boost", go.transform, pad, new Color(1f, 0.72f, 0.35f), "BOOST", 28, font, new Vector2(1400f, 180f), 82f);
             RectTransform action = UIButton("Action", go.transform, pad, new Color(0.82f, 0.55f, 1f), "ACTION", 26, font, new Vector2(1695f, 495f), 82f);
             RectTransform reset = UIButton("Reset (debug)", go.transform, pad, new Color(0.8f, 0.8f, 0.8f), "RESET", 18, font, new Vector2(1830f, 1000f), 46f);
+            RectTransform attack = UIButton("Attack", go.transform, pad, new Color(1f, 0.42f, 0.38f), "ATTACK", 26, font, new Vector2(1470f, 400f), 90f);
 
             var view = go.AddComponent<TouchControlsView>();
-            view.SetParts(stick, knob, new[] { jump, boost, action, reset });
+            view.SetParts(stick, knob, new[] { jump, boost, action, reset, attack });
             return view;
         }
 
@@ -700,14 +922,23 @@ namespace ProjectVelocity.EditorTools
             public Material Wall;
             public Material PlayerBody;
             public Material PlayerVisor;
+            public Material PlayerAccent;
             public Material TargetIdle;
             public Material TargetSelected;
             public Material TargetCooldown;
             public Mesh TargetRing;
+            public Material EnemyIdle;
+            public Material EnemySelected;
+            public Material EnemyHit;
+            public Mesh EnemyCore;
+            public Mesh EnemyRing;
+            public Material BladeSteel;
+            public Material SlashFx;
+            public Mesh SlashArc;
         }
 
         // Colour-coded for readability only: orange = ramps, blue = elevated path, green = towers, red = markers, teal = wall-run walls,
-        // violet = traversal targets (pink while selected, grey while cooling down).
+        // violet = traversal targets (pink while selected, grey while cooling down), glowing red = enemies (yellow while selected).
         static Palette CreatePalette()
         {
             Texture2D grid = LoadOrCreateGridTexture();
@@ -723,11 +954,61 @@ namespace ProjectVelocity.EditorTools
                 Wall = Mat("Graybox_Wall", new Color(0.30f, 0.72f, 0.68f), grid),
                 PlayerBody = Mat("Player_Body", new Color(1f, 0.82f, 0.2f), null),
                 PlayerVisor = Mat("Player_Visor", new Color(0.08f, 0.09f, 0.11f), null),
+                PlayerAccent = Mat("Player_Accent", new Color(0.2f, 0.22f, 0.26f), null),
                 TargetIdle = GlowMat("Target_Idle", new Color(0.50f, 0.25f, 0.85f), new Color(0.30f, 0.10f, 0.60f)),
                 TargetSelected = GlowMat("Target_Selected", new Color(1f, 0.35f, 0.85f), new Color(1f, 0.30f, 0.80f)),
                 TargetCooldown = GlowMat("Target_Cooldown", new Color(0.28f, 0.25f, 0.33f), Color.black),
+                EnemyIdle = GlowMat("Enemy_Idle", new Color(1f, 0.08f, 0.06f), new Color(1f, 0.06f, 0.04f)),
+                EnemySelected = GlowMat("Enemy_Selected", new Color(1f, 0.85f, 0.3f), new Color(1f, 0.7f, 0.15f)),
+                EnemyHit = GlowMat("Enemy_Hit", Color.white, Color.white),
+                BladeSteel = GlowMat("Blade_Steel", new Color(0.8f, 0.86f, 0.95f), new Color(0.15f, 0.3f, 0.45f)),
+                SlashFx = FxMat("Slash_Arc", new Color(0.65f, 0.92f, 1f, 0.6f)),
+
+                // Generated meshes last, after every asset operation, and only once the new scene is open (see Build).
                 TargetRing = GrayboxMeshes.Torus(TargetRingRadius, 0.12f, 48, 10),
+                EnemyCore = GrayboxMeshes.Octahedron(EnemyCoreRadius, EnemyCoreHalfHeight),
+                EnemyRing = GrayboxMeshes.Torus(EnemyRingRadius, 0.08f, 32, 6),
+                SlashArc = GrayboxMeshes.Crescent(SlashInnerRadius, SlashOuterRadius, SlashArcDegrees, 24),
             };
+        }
+
+        /// <summary>
+        /// Unlit, transparent, double-sided material for placeholder effects (the slash arc). Its colour and alpha are driven at
+        /// runtime through a property block, so the asset only sets the surface up.
+        /// </summary>
+        static Material FxMat(string name, Color color)
+        {
+            string path = $"{GeneratedFolder}/{name}.mat";
+            Shader shader = Shader.Find("Universal Render Pipeline/Unlit");
+            if (shader == null)
+                shader = Shader.Find("Sprites/Default");
+
+            Material material = AssetDatabase.LoadAssetAtPath<Material>(path);
+            if (material == null)
+            {
+                material = new Material(shader);
+                AssetDatabase.CreateAsset(material, path);
+            }
+            else if (material.shader != shader)
+            {
+                material.shader = shader;
+            }
+
+            material.color = color; // _BaseColor on URP Unlit
+            // URP surface options: Transparent, Alpha blend, Both sides, no depth write.
+            material.SetFloat("_Surface", 1f);
+            material.SetFloat("_Blend", 0f);
+            material.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            material.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            material.SetFloat("_SrcBlendAlpha", (float)UnityEngine.Rendering.BlendMode.One);
+            material.SetFloat("_DstBlendAlpha", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            material.SetFloat("_ZWrite", 0f);
+            material.SetFloat("_Cull", (float)UnityEngine.Rendering.CullMode.Off);
+            material.SetOverrideTag("RenderType", "Transparent");
+            material.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            material.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+            EditorUtility.SetDirty(material);
+            return material;
         }
 
         /// <summary>A <see cref="Mat"/> that glows, so targets read from a distance. Black emission = no glow.</summary>
@@ -814,6 +1095,27 @@ namespace ProjectVelocity.EditorTools
         }
 
         // ------------------------------------------------------------------ Assets & settings
+
+        /// <summary>
+        /// Every mesh object must have its mesh when the scene is saved; a missing one is saved as nothing and renders as
+        /// nothing, which is easy to miss in a big level. Logs each one (click to select it).
+        /// </summary>
+        static void CheckMeshes(Scene scene)
+        {
+            int missing = 0;
+            foreach (GameObject root in scene.GetRootGameObjects())
+            {
+                foreach (MeshFilter filter in root.GetComponentsInChildren<MeshFilter>(true))
+                {
+                    if (filter.sharedMesh != null)
+                        continue;
+                    missing++;
+                    Debug.LogError($"[Project Velocity] '{filter.name}' has no mesh and will be invisible.", filter);
+                }
+            }
+            if (missing > 0)
+                Debug.LogError($"[Project Velocity] Movement test built with {missing} invisible mesh object(s): see the errors above.");
+        }
 
         static void AddSceneToBuildSettings()
         {

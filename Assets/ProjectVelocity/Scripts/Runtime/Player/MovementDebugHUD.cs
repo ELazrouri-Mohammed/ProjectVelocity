@@ -4,7 +4,7 @@ using DeviceScreen = UnityEngine.Device.Screen;
 namespace ProjectVelocity
 {
     /// <summary>
-    /// Tiny developer readout (speed, state, boost, target) to help put numbers on how movement feels.
+    /// Tiny developer readout (speed, state, boost, target, attack) to help put numbers on how movement feels.
     /// Not game UI: disable the component to hide it.
     /// </summary>
     [DisallowMultipleComponent]
@@ -17,6 +17,9 @@ namespace ProjectVelocity
 
         [Tooltip("Traversal target selection to report. Optional.")]
         [SerializeField] TraversalTargeting targeting;
+
+        [Tooltip("Blade combat to report (attack state, selected enemy, last kill). Optional.")]
+        [SerializeField] CombatController combat;
 
         [Tooltip("Player controller whose input source supplies the control reminder. Optional.")]
         [SerializeField] VelocityPlayerController player;
@@ -47,12 +50,20 @@ namespace ProjectVelocity
             set => player = value;
         }
 
+        public CombatController Combat
+        {
+            get => combat;
+            set => combat = value;
+        }
+
         void Awake()
         {
             if (targeting == null)
                 targeting = GetComponent<TraversalTargeting>();
             if (player == null)
                 player = GetComponent<VelocityPlayerController>();
+            if (combat == null)
+                combat = GetComponent<CombatController>();
 
             // Labels only: skip the IMGUI layout pass.
             useGUILayout = false;
@@ -77,6 +88,7 @@ namespace ProjectVelocity
             string state = motor.State switch
             {
                 MotorState.Target => "TARGET (pulled through)",
+                MotorState.Lunge => "LUNGE",
                 MotorState.Wall => $"WALL   ({motor.WallRunTimeRemaining:0.0}s left)",
                 MotorState.Boost => "BOOST",
                 MotorState.Ground => "GROUND",
@@ -100,7 +112,30 @@ namespace ProjectVelocity
                 $"Boost  {boost}   air boosts left {motor.AirBoostsRemaining}\n" +
                 $"Last wall jump  {wallJump}\n" +
                 $"Target  {target}\n" +
+                (combat != null ? BuildCombat() + "\n" : "") +
                 $"FPS    {fps:0}";
+        }
+
+        string BuildCombat()
+        {
+            string attack = combat.Phase switch
+            {
+                CombatController.AttackPhase.Lunging => "LUNGE",
+                CombatController.AttackPhase.Slashing => "SLASH",
+                CombatController.AttackPhase.Cooldown => $"{combat.CooldownRemaining:0.00}s",
+                _ => "ready",
+            };
+
+            CombatTargeting enemies = combat.Targeting;
+            string enemy = enemies != null && enemies.Selected != null
+                ? $"{enemies.SelectedDistance:0.0} m  {enemies.SelectedAngle:0}°"
+                : "none";
+
+            string kill = combat.LastKillTime < 0f ? "-"
+                : $"{Time.time - combat.LastKillTime:0.0}s ago" +
+                  (combat.LastKillRefreshedAirBoost ? "  (+1 air boost)" : "  (air boost was already ready)");
+
+            return $"Attack  {attack}   enemy {enemy}   kills {combat.KillCount}   last kill {kill}";
         }
 
         void OnGUI()
@@ -118,7 +153,8 @@ namespace ProjectVelocity
             float left = safe.xMin + 16f;
             float width = safe.width - 32f;
             float lineHeight = style.fontSize * 1.5f;
-            DrawShadowed(new Rect(left, screenHeight - safe.yMax + 12f, width, lineHeight * 6.5f), stats);
+            float lines = combat != null ? 7.5f : 6.5f;
+            DrawShadowed(new Rect(left, screenHeight - safe.yMax + 12f, width, lineHeight * lines), stats);
 
             string controls = showControls && player != null && player.InputSource != null ? player.InputSource.ControlsHint : null;
             if (!string.IsNullOrEmpty(controls))

@@ -75,6 +75,10 @@ namespace ProjectVelocity
         public Vector2 actionPosition = new Vector2(225f, 495f);
         [Min(10f)] public float actionRadius = 82f;
 
+        [Tooltip("ATTACK sits on the same arc around JUMP as BOOST and ACTION, between them, so the thumb rolls to it.")]
+        public Vector2 attackPosition = new Vector2(450f, 400f);
+        [Min(10f)] public float attackRadius = 90f;
+
         [Tooltip("Touch area relative to each button's drawn size, so slightly-off presses still count.")]
         [Range(1f, 1.5f)] public float buttonHitScale = 1.15f;
 

@@ -19,6 +19,7 @@ namespace ProjectVelocity
         InputAction jump;
         InputAction boost;
         InputAction activateTarget;
+        InputAction attack;
         InputAction respawn;
         InputAction freeCursor;
         InputAction captureCursor;
@@ -46,6 +47,12 @@ namespace ProjectVelocity
             // Desktop binding for the traversal-target button (ACTION on touch screens).
             activateTarget = new InputAction("ActivateTarget", InputActionType.Button, "<Keyboard>/e");
             activateTarget.AddBinding("<Gamepad>/buttonWest");
+
+            // Blade attack (ATTACK on touch screens). The left click that recaptures a freed cursor doesn't attack.
+            attack = new InputAction("Attack", InputActionType.Button, "<Mouse>/leftButton");
+            attack.AddBinding("<Keyboard>/f");
+            attack.AddBinding("<Gamepad>/rightTrigger");
+            attack.AddBinding("<Gamepad>/buttonNorth");
 
             respawn = new InputAction("Respawn", InputActionType.Button, "<Keyboard>/r");
             respawn.AddBinding("<Gamepad>/select");
@@ -75,20 +82,25 @@ namespace ProjectVelocity
             jump?.Dispose();
             boost?.Dispose();
             activateTarget?.Dispose();
+            attack?.Dispose();
             respawn?.Dispose();
             freeCursor?.Dispose();
             captureCursor?.Dispose();
         }
 
         public override string ControlsHint =>
-            "WASD move   Mouse look   Space jump / wall jump   Shift boost   E target   R respawn   Esc free cursor";
+            "WASD move   Mouse look   Space jump / wall jump   Shift boost   LMB / F attack   E target   R respawn   Esc free cursor";
 
         public override PlayerIntent ReadIntent()
         {
+            bool clickCapturedCursor = false;
             if (freeCursor.WasPressedThisFrame())
                 FreeCursor();
             else if (lockCursor && captureCursor.WasPressedThisFrame())
+            {
+                clickCapturedCursor = Cursor.lockState != CursorLockMode.Locked;
                 CaptureCursor();
+            }
 
             // While the cursor is free the mouse is being used for the editor, not the camera.
             bool mouseLookActive = !lockCursor || Cursor.lockState == CursorLockMode.Locked;
@@ -102,13 +114,14 @@ namespace ProjectVelocity
                 JumpHeld = jump.IsPressed(),
                 BoostPressed = boost.WasPressedThisFrame(),
                 TargetPressed = activateTarget.WasPressedThisFrame(),
+                AttackPressed = attack.WasPressedThisFrame() && !clickCapturedCursor,
                 RespawnPressed = respawn.WasPressedThisFrame(),
             };
         }
 
         void SetActionsEnabled(bool active)
         {
-            foreach (InputAction action in new[] { move, mouseLook, stickLook, jump, boost, activateTarget, respawn, freeCursor, captureCursor })
+            foreach (InputAction action in new[] { move, mouseLook, stickLook, jump, boost, activateTarget, attack, respawn, freeCursor, captureCursor })
             {
                 if (action == null)
                     continue;

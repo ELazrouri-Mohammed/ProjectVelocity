@@ -112,6 +112,82 @@ namespace ProjectVelocity.EditorTools
             return mesh;
         }
 
+        /// <summary>
+        /// Octahedron (a double pyramid) centred on its pivot: <paramref name="radius"/> to its four side points,
+        /// <paramref name="halfHeight"/> to its tips. Flat-shaded.
+        /// </summary>
+        public static Mesh Octahedron(float radius, float halfHeight)
+        {
+            var builder = new Builder(Vector3.zero);
+            Vector3 top = Vector3.up * halfHeight;
+            Vector3 bottom = Vector3.down * halfHeight;
+            Vector3[] sides =
+            {
+                new Vector3(radius, 0f, 0f), new Vector3(0f, 0f, radius), new Vector3(-radius, 0f, 0f), new Vector3(0f, 0f, -radius),
+            };
+
+            for (int i = 0; i < sides.Length; i++)
+            {
+                Vector3 a = sides[i];
+                Vector3 b = sides[(i + 1) % sides.Length];
+                builder.Triangle(top, a, b, OutwardNormal(top, a, b), UvPlane.XZ);
+                builder.Triangle(bottom, a, b, OutwardNormal(bottom, a, b), UvPlane.XZ);
+            }
+
+            return builder.ToMesh($"Octahedron {radius:0.##} / {halfHeight:0.##}");
+        }
+
+        /// <summary>
+        /// Flat crescent in the local XZ plane, centred on +Z around the pivot: a placeholder slash arc. Widest in the middle,
+        /// tapering to points at both ends, and double-sided so it shows from above and below.
+        /// </summary>
+        public static Mesh Crescent(float innerRadius, float outerRadius, float arcDegrees, int segments)
+        {
+            var vertices = new List<Vector3>();
+            var normals = new List<Vector3>();
+            var uvs = new List<Vector2>();
+            var triangles = new List<int>();
+
+            for (int i = 0; i <= segments; i++)
+            {
+                float u = (float)i / segments;
+                float angle = (u - 0.5f) * arcDegrees * Mathf.Deg2Rad;
+                var direction = new Vector3(Mathf.Sin(angle), 0f, Mathf.Cos(angle));
+                float inner = Mathf.Lerp(outerRadius, innerRadius, Mathf.Sin(u * Mathf.PI));
+                vertices.Add(direction * inner);
+                vertices.Add(direction * outerRadius);
+                normals.Add(Vector3.up);
+                normals.Add(Vector3.up);
+                uvs.Add(new Vector2(u, 0f));
+                uvs.Add(new Vector2(u, 1f));
+            }
+
+            for (int i = 0; i < segments; i++)
+            {
+                int a = i * 2;
+                int b = a + 1;
+                int c = a + 3;
+                int d = a + 2;
+                // Both windings: visible from either side whatever the material's culling.
+                triangles.AddRange(new[] { a, b, c, a, c, d, a, c, b, a, d, c });
+            }
+
+            var mesh = new Mesh { name = $"Crescent {innerRadius:0.#}-{outerRadius:0.#} m {arcDegrees:0}°" };
+            mesh.SetVertices(vertices);
+            mesh.SetNormals(normals);
+            mesh.SetUVs(0, uvs);
+            mesh.SetTriangles(triangles, 0);
+            mesh.RecalculateBounds();
+            return mesh;
+        }
+
+        /// <summary>Normal of a triangle on a convex shape around the origin, pointing away from the origin.</summary>
+        static Vector3 OutwardNormal(Vector3 a, Vector3 b, Vector3 c)
+        {
+            Vector3 normal = Vector3.Cross(b - a, c - a).normalized;
+            return Vector3.Dot(normal, a + b + c) < 0f ? -normal : normal;
+        }
+
         enum UvPlane
         {
             XZ,
