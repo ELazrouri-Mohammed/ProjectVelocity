@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 
 namespace ProjectVelocity
@@ -30,6 +31,9 @@ namespace ProjectVelocity
 
         Vector3 spawnPosition;
         float spawnYaw;
+
+        /// <summary>Raised after <see cref="Respawn"/> has put the player back at the start (R / RESET, or a fall).</summary>
+        public event Action Respawned;
 
         public VelocityInputSource InputSource
         {
@@ -123,6 +127,7 @@ namespace ProjectVelocity
                 cameraRig.SnapBehindTarget(spawnYaw);
             if (combat != null)
                 combat.ResetCombat();
+            Respawned?.Invoke();
         }
     }
 }

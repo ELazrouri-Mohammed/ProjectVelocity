@@ -4,7 +4,7 @@ using DeviceScreen = UnityEngine.Device.Screen;
 namespace ProjectVelocity
 {
     /// <summary>
-    /// Tiny developer readout (speed, state, boost, target, attack) to help put numbers on how movement feels.
+    /// Tiny developer readout (speed, state, boost, target, attack, reality sequence) to help put numbers on how movement feels.
     /// Not game UI: disable the component to hide it.
     /// </summary>
     [DisallowMultipleComponent]
@@ -31,6 +31,7 @@ namespace ProjectVelocity
         float smoothedFrameTime;
         float refreshTimer;
         string stats;
+        bool showsReality;
 
         public VelocityMotor Motor
         {
@@ -106,6 +107,9 @@ namespace ProjectVelocity
                     : $"selected   {targeting.SelectedDistance:0.0} m   {targeting.SelectedAngle:0}°" + (motor.CanActivateTarget ? "" : "   (cooldown)");
             }
 
+            string reality = BuildReality();
+            showsReality = reality != null;
+
             return
                 $"Speed  {speed:0.0} m/s  ({speed * 3.6f:0} km/h)   vertical {motor.Velocity.y:+0.0;-0.0;0.0}\n" +
                 $"State  {state}\n" +
@@ -113,7 +117,29 @@ namespace ProjectVelocity
                 $"Last wall jump  {wallJump}\n" +
                 $"Target  {target}\n" +
                 (combat != null ? BuildCombat() + "\n" : "") +
+                (reality != null ? reality + "\n" : "") +
                 $"FPS    {fps:0}";
+        }
+
+        /// <summary>The reality transformation that is playing (or the first one), or null when the scene has none.</summary>
+        static string BuildReality()
+        {
+            var sequences = RealityTransformSequence.Active;
+            RealityTransformSequence shown = null;
+            for (int i = 0; i < sequences.Count; i++)
+            {
+                if (shown == null || sequences[i].State == RealityTransformSequence.Phase.Playing)
+                    shown = sequences[i];
+            }
+            if (shown == null)
+                return null;
+
+            return shown.State switch
+            {
+                RealityTransformSequence.Phase.Playing => $"Reality  SHIFTING   {shown.Elapsed:0.0}s / {shown.TotalDuration:0.0}s",
+                RealityTransformSequence.Phase.Complete => $"Reality  in place (took {shown.TotalDuration:0.0}s)   R / RESET puts it back",
+                _ => "Reality  dormant",
+            };
         }
 
         string BuildCombat()
@@ -153,7 +179,7 @@ namespace ProjectVelocity
             float left = safe.xMin + 16f;
             float width = safe.width - 32f;
             float lineHeight = style.fontSize * 1.5f;
-            float lines = combat != null ? 7.5f : 6.5f;
+            float lines = (combat != null ? 7.5f : 6.5f) + (showsReality ? 1f : 0f);
             DrawShadowed(new Rect(left, screenHeight - safe.yMax + 12f, width, lineHeight * lines), stats);
 
             string controls = showControls && player != null && player.InputSource != null ? player.InputSource.ControlsHint : null;

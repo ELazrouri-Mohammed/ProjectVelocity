@@ -56,6 +56,12 @@ namespace ProjectVelocity.EditorTools
         const float SlashOuterRadius = 2.4f;
         const float SlashArcDegrees = 150f;
 
+        // Reality transformation (J): centre line of the 12 m lane (z), height of the route across the gap (m), and the
+        // thickness of the glowing edge strips on the transforming pieces (m).
+        const float RealityLaneZ = -90f;
+        const float RealityRouteHeight = 8f;
+        const float RealityEdge = 0.3f;
+
         [MenuItem("Tools/Project Velocity/Build Movement Test", priority = 0)]
         public static void BuildFromMenu()
         {
@@ -136,6 +142,9 @@ namespace ProjectVelocity.EditorTools
             player.GetComponent<TraversalTargeting>().Viewpoint = cameraRig.transform;
             player.GetComponent<CombatTargeting>().Viewpoint = cameraRig.transform;
             player.GetComponent<CombatController>().CameraRig = cameraRig;
+            var playerController = player.GetComponent<VelocityPlayerController>();
+            foreach (RealityTrigger trigger in UnityEngine.Object.FindObjectsByType<RealityTrigger>(FindObjectsSortMode.None))
+                trigger.Player = playerController;
 
             CheckMeshes(scene);
             EditorSceneManager.SaveScene(scene, ScenePath);
@@ -149,6 +158,9 @@ namespace ProjectVelocity.EditorTools
                       "E launches you through the selected (pink) target. " +
                       "The combat section is to the left of the spawn: turn left and run west; Left Mouse or F attacks the " +
                       "selected (yellow) enemy. " +
+                      "The reality transformation section is behind the spawn to the right: turn around and run south-west to " +
+                      "the red gate at x = -60, then west; crossing the cyan line at the foot of the ramp transforms the route " +
+                      "ahead while you keep running. R / RESET puts it back. " +
                       "Tune movement and targets on the Player (Velocity Motor), combat on the Player (Combat Controller) and " +
                       "camera on the Main Camera (Velocity Camera). " +
                       "Touch controls appear on Android/iOS and in the Device Simulator; to try them in the Game view, set " +
@@ -248,6 +260,7 @@ namespace ProjectVelocity.EditorTools
             BuildWallSection(root, p);
             BuildTargetSection(root, p);
             BuildCombatSection(root, p);
+            BuildRealitySection(root, p);
         }
 
         /// <summary>
@@ -419,6 +432,145 @@ namespace ProjectVelocity.EditorTools
             Enemy("Sentinel - After The Wall Jump (8.5 m)", chain, new Vector3(-140f, 8.5f, -33f), p);
             Target("Target - After The Kill", chain, new Vector3(-185f, 10f, -32f), p);
             Box("Finish (7 m)", chain, -258f, -200f, 0f, 7f, -44f, -20f, p.Elevated);
+        }
+
+        /// <summary>
+        /// J: reality transformation, behind the spawn to the right (turn around and run south-west to the pair of red gate
+        /// markers at x = -60, then west). The lane runs off the west edge of the main slab, up a ramp onto an 8 m deck that
+        /// ends at an impossible 120 m gap over the void. Dark pieces with glowing cyan edges are reality-changing
+        /// architecture: crossing the cyan line at the foot of the ramp wakes them, and they rebuild the route ahead while you
+        /// keep running (no button, nothing stops). A tower standing past the gap edge falls forward into the first bridge, a
+        /// slab hanging into the void folds up into the second, and an upside-down corridor floating above the far side rolls
+        /// over as it drops into the third: a floor with a wall on the right to run on. A traversal target over the last short
+        /// gap carries you onto the blue finish (a jump + boost makes it too). A fall into the void respawns you; respawning
+        /// (R / RESET, or the fall) snaps every piece back and re-arms the line.
+        /// Default timing: with an 80 m lead the pieces land 1.9 s, 2.6 s and 3.7 s after the line, ahead of you even at
+        /// boost-spamming speed (about 38 m/s); at a plain 22 m/s run you watch the whole thing happen on the way up.
+        /// </summary>
+        static void BuildRealitySection(Transform root, Palette p)
+        {
+            const float z = RealityLaneZ;
+            const float h = RealityRouteHeight;
+            Transform section = Group("J - Reality Transformation", root);
+
+            Pillar(section, new Vector3(-60f, 0f, z + 8f), 1f, 6f, p.Marker);
+            Pillar(section, new Vector3(-60f, 0f, z - 8f), 1f, 6f, p.Marker);
+
+            // J1: static start. The 12 m lane leaves the west edge of the main slab (x = -130) up a ramp onto the 8 m deck,
+            // whose end (x = -210) is the gap edge.
+            Transform approach = Group("J1 - Approach", section);
+            Box("Ramp Base", approach, -160f, -130f, -14f, 0f, z - 6f, z + 6f, p.Block);
+            Ramp("Ramp Up (8 m)", approach, new Vector3(-130f, 0f, z), 270f, 12f, 30f, h, p.Ramp);
+            Box("Deck (8 m) - Gap Edge", approach, -210f, -160f, -14f, h, z - 6f, z + 6f, p.Block);
+
+            // J2: the transforming pieces, in the order they move. Each one's object is its pivot; it is built where it ends
+            // up (the finished path, flush at 8 m) and then put in its starting pose. Each sweeps only its own stretch of the
+            // route, so a moving piece never passes over the deck or over a piece already in place.
+            Transform pieces = Group("J2 - Reality Pieces", section);
+            var sequence = pieces.gameObject.AddComponent<RealityTransformSequence>();
+
+            // 1: a 40 m tower standing just past the gap edge, hinged at the edge, falls forward (away from you) into the first bridge.
+            RealityChunk tower = BeginChunk("Piece 1 - Tower Falls Into Bridge (40 m)", pieces, new Vector3(-210f, h, z));
+            RealitySlab(tower, -250f, -210f, h - 3f, h, z - 6f, z + 6f, p);
+            FinishChunk(tower, new Vector3(0f, 0f, -90f), 1.6f, HeavyFall(), p);
+
+            // 2: a 32 m slab hanging straight down into the void, hinged in mid-air where the tower's tip lands, folds up into the second.
+            RealityChunk fold = BeginChunk("Piece 2 - Slab Folds Up From The Void (32 m)", pieces, new Vector3(-250f, h - 3f, z));
+            RealitySlab(fold, -282f, -250f, h - 3f, h, z - 6f, z + 6f, p);
+            FinishChunk(fold, new Vector3(0f, 0f, 90f), 1.5f, AnimationCurve.EaseInOut(0f, 0f, 1f, 1f), p);
+
+            // 3: an upside-down corridor floating 14 m higher rolls over around its centre line as it drops into the third
+            // section: a 34 m floor with a 14 m wall on the right. Run along the floor, or jump at the wall and wall run off its end.
+            RealityChunk corridor = BeginChunk("Piece 3 - Upside-Down Corridor Rolls Into Wall Path (34 m)", pieces, new Vector3(-299f, h, z));
+            Box("Floor", corridor.transform, -316f, -282f, h - 3f, h, z - 6f, z + 6f, p.RealityBody);
+            Box("Wall (8-22 m)", corridor.transform, -316f, -282f, h - 3f, h + 14f, z + 6f, z + 7.5f, p.RealityBody);
+            Edge(corridor, -316f, -282f, h, z - 6f, p);
+            Edge(corridor, -316f, -282f, h - 3f, z - 6f, p);
+            Edge(corridor, -316f, -282f, h, z + 6f, p);
+            Edge(corridor, -316f, -282f, h + 14f, z + 6f, p);
+            Edge(corridor, -316f, -282f, h + 14f, z + 7.5f, p);
+            Edge(corridor, -316f, -282f, h - 3f, z + 7.5f, p);
+            FinishChunk(corridor, new Vector3(180f, 0f, 0f), 1.8f, AnimationCurve.EaseInOut(0f, 0f, 1f, 1f), p,
+                new Vector3(-299f, h + 14f, z));
+
+            sequence.SetChunks(new[] { tower, fold, corridor });
+
+            // The trigger sits on the gap edge, facing along the route; its volume is Lead Distance (80 m) back, at the foot of
+            // the ramp, where the cyan line on the floor marks it.
+            var triggerObject = new GameObject("Reality Trigger (at the gap edge; volume = Lead Distance back)");
+            triggerObject.transform.SetParent(section, false);
+            triggerObject.transform.SetPositionAndRotation(new Vector3(-210f, h, z), Quaternion.Euler(0f, 270f, 0f));
+            var trigger = triggerObject.AddComponent<RealityTrigger>();
+            trigger.Sequence = sequence;
+            trigger.LeadDistance = 80f;
+            trigger.VolumeSize = new Vector3(16f, 30f, 4f);
+            GameObject line = Primitive(PrimitiveType.Cube, "Trigger Line", triggerObject.transform, Vector3.zero,
+                new Vector3(12f, 0.05f, 0.8f), p.RealitySettled);
+            line.transform.SetPositionAndRotation(new Vector3(-130f, 0.03f, z), Quaternion.Euler(0f, 270f, 0f));
+            line.GetComponent<MeshRenderer>().shadowCastingMode = ShadowCastingMode.Off;
+            trigger.Marker = line.transform;
+
+            // J3: exit. A 14 m gap down to the 6 m finish with a traversal target over it, and a wall at the far end.
+            Transform exit = Group("J3 - Exit", section);
+            Target("Target - Exit", exit, new Vector3(-323f, h + 2.5f, z), p);
+            Box("Finish (6 m)", exit, -380f, -330f, -14f, 6f, z - 8f, z + 8f, p.Elevated);
+            Box("End Wall", exit, -380f, -379f, 6f, 12f, z - 8f, z + 8f, p.Block);
+        }
+
+        /// <summary>
+        /// Starts a reality piece: an empty pivot at <paramref name="pivot"/>, on a kinematic Rigidbody so its child colliders
+        /// move as one without physics ever pushing them. Its parts are then added where they sit in the finished path.
+        /// </summary>
+        static RealityChunk BeginChunk(string name, Transform parent, Vector3 pivot)
+        {
+            var go = new GameObject(name);
+            go.transform.SetParent(parent, false);
+            go.transform.position = pivot;
+            var body = go.AddComponent<Rigidbody>();
+            body.isKinematic = true;
+            body.useGravity = false;
+            return go.AddComponent<RealityChunk>();
+        }
+
+        /// <summary>
+        /// Finishes a reality piece: where it is now becomes its destination, it starts from <paramref name="initialRotation"/>
+        /// (at <paramref name="initialPosition"/>, or turning in place when none is given), and it is put there.
+        /// Its glowing edges are the parts made with the dormant material.
+        /// </summary>
+        static void FinishChunk(RealityChunk chunk, Vector3 initialRotation, float duration, AnimationCurve easing, Palette p,
+            Vector3? initialPosition = null)
+        {
+            Transform t = chunk.transform;
+            chunk.Configure(initialPosition ?? t.localPosition, initialRotation, t.localPosition, t.localEulerAngles, duration, easing);
+            Renderer[] edges = t.GetComponentsInChildren<Renderer>().Where(r => r.sharedMaterial == p.RealityDormant).ToArray();
+            chunk.SetLook(edges, p.RealityDormant, p.RealityShifting, p.RealitySettled);
+            chunk.SnapToInitial();
+        }
+
+        /// <summary>A reality piece's slab (collider included), with glowing strips along its four long edges.</summary>
+        static void RealitySlab(RealityChunk chunk, float xMin, float xMax, float yMin, float yMax, float zMin, float zMax, Palette p)
+        {
+            Box("Slab", chunk.transform, xMin, xMax, yMin, yMax, zMin, zMax, p.RealityBody);
+            Edge(chunk, xMin, xMax, yMax, zMin, p);
+            Edge(chunk, xMin, xMax, yMax, zMax, p);
+            Edge(chunk, xMin, xMax, yMin, zMin, p);
+            Edge(chunk, xMin, xMax, yMin, zMax, p);
+        }
+
+        /// <summary>Glowing strip (no collider, no shadow) along x, centred on the edge line at (<paramref name="y"/>, <paramref name="z"/>).</summary>
+        static void Edge(RealityChunk chunk, float xMin, float xMax, float y, float z, Palette p)
+        {
+            GameObject go = Primitive(PrimitiveType.Cube, "Edge", chunk.transform, Vector3.zero,
+                new Vector3(xMax - xMin, RealityEdge, RealityEdge), p.RealityDormant);
+            // The piece is still unrotated and unscaled here, so the world position is all that's needed.
+            go.transform.position = new Vector3((xMin + xMax) * 0.5f, y, z);
+            go.GetComponent<MeshRenderer>().shadowCastingMode = ShadowCastingMode.Off;
+        }
+
+        /// <summary>Topples like something heavy: slow to start, fastest near the end, then a short soft stop (no bounce).</summary>
+        static AnimationCurve HeavyFall()
+        {
+            return new AnimationCurve(new Keyframe(0f, 0f, 0f, 0f), new Keyframe(0.8f, 0.86f, 2f, 2f), new Keyframe(1f, 1f, 0.3f, 0f));
         }
 
         /// <summary>
@@ -935,10 +1087,15 @@ namespace ProjectVelocity.EditorTools
             public Material BladeSteel;
             public Material SlashFx;
             public Mesh SlashArc;
+            public Material RealityBody;
+            public Material RealityDormant;
+            public Material RealityShifting;
+            public Material RealitySettled;
         }
 
         // Colour-coded for readability only: orange = ramps, blue = elevated path, green = towers, red = markers, teal = wall-run walls,
-        // violet = traversal targets (pink while selected, grey while cooling down), glowing red = enemies (yellow while selected).
+        // violet = traversal targets (pink while selected, grey while cooling down), glowing red = enemies (yellow while selected),
+        // dark violet-grey with glowing cyan edges = reality-changing architecture (edges dim while dormant, bright while it moves).
         static Palette CreatePalette()
         {
             Texture2D grid = LoadOrCreateGridTexture();
@@ -963,6 +1120,10 @@ namespace ProjectVelocity.EditorTools
                 EnemyHit = GlowMat("Enemy_Hit", Color.white, Color.white),
                 BladeSteel = GlowMat("Blade_Steel", new Color(0.8f, 0.86f, 0.95f), new Color(0.15f, 0.3f, 0.45f)),
                 SlashFx = FxMat("Slash_Arc", new Color(0.65f, 0.92f, 1f, 0.6f)),
+                RealityBody = Mat("Reality_Body", new Color(0.30f, 0.28f, 0.40f), grid),
+                RealityDormant = GlowMat("Reality_Dormant", new Color(0.20f, 0.55f, 0.65f), new Color(0.05f, 0.30f, 0.38f)),
+                RealityShifting = GlowMat("Reality_Shifting", new Color(0.80f, 1f, 1f), new Color(0.70f, 2.0f, 2.4f)),
+                RealitySettled = GlowMat("Reality_Settled", new Color(0.35f, 0.85f, 0.95f), new Color(0.12f, 0.65f, 0.80f)),
 
                 // Generated meshes last, after every asset operation, and only once the new scene is open (see Build).
                 TargetRing = GrayboxMeshes.Torus(TargetRingRadius, 0.12f, 48, 10),
