@@ -6,7 +6,8 @@ namespace ProjectVelocity
     /// <summary>
     /// High-speed kinematic character motor built on CharacterController.
     /// It knows nothing about devices or cameras: something calls <see cref="Tick"/> once per frame
-    /// with a world-space <see cref="MotorCommand"/>. Wall traversal lives in VelocityMotor.WallRun.cs.
+    /// with a world-space <see cref="MotorCommand"/>. Wall traversal lives in VelocityMotor.WallRun.cs,
+    /// traversal-target propulsion in VelocityMotor.Targets.cs.
     /// </summary>
     [DisallowMultipleComponent]
     [RequireComponent(typeof(CharacterController))]
@@ -49,7 +50,11 @@ namespace ProjectVelocity
         public int AirBoostsRemaining => Mathf.Max(0, Settings.maxAirBoosts - airBoostsUsed);
 
         public MotorState State =>
-            wallRunning ? MotorState.Wall : boostTimer > 0f ? MotorState.Boost : grounded ? MotorState.Ground : MotorState.Air;
+            targetPulling ? MotorState.Target
+            : wallRunning ? MotorState.Wall
+            : boostTimer > 0f ? MotorState.Boost
+            : grounded ? MotorState.Ground
+            : MotorState.Air;
 
         CharacterController controller;
         MovementTuning fallbackTuning;
@@ -73,7 +78,8 @@ namespace ProjectVelocity
         bool boostHoldsAltitude;
         int airBoostsUsed;
 
-        MovementTuning Settings
+        /// <summary>The tuning in use: the assigned asset, or built-in defaults when none is assigned.</summary>
+        internal MovementTuning Settings
         {
             get
             {
@@ -112,6 +118,7 @@ namespace ProjectVelocity
             coyoteTimer = grounded ? t.coyoteTime : coyoteTimer - dt;
             jumpBufferTimer = command.JumpPressed ? t.jumpBufferTime : jumpBufferTimer - dt;
             TickWallTimers(t, dt);
+            TickTargetTimers(dt);
 
             Vector3 wishDir = new Vector3(command.MoveDirection.x, 0f, command.MoveDirection.z);
             float wishMagnitude = wishDir.magnitude;
@@ -128,9 +135,13 @@ namespace ProjectVelocity
 
             if (command.BoostPressed)
                 TryStartBoost(t, wishDir, command.FallbackDirection);
+            if (command.ActivateTarget != null)
+                TryStartTargetPull(t, command.ActivateTarget);
 
-            // Horizontal motion. On a wall, the wall run drives both planar and vertical motion.
-            if (wallRunning && KeepWallRun(t, wishDir, wishAmount))
+            // Horizontal motion. On a wall, the wall run drives both planar and vertical motion; so does a target pull.
+            if (targetPulling)
+                UpdateTargetPull(t, dt);
+            else if (wallRunning && KeepWallRun(t, wishDir, wishAmount))
                 UpdateWallRun(t, wishDir, wishAmount, dt);
             else if (boostTimer > 0f)
                 UpdateBoost(t, wishDir, wishAmount, dt);
@@ -166,8 +177,8 @@ namespace ProjectVelocity
                 jumpedThisFrame = true;
             }
 
-            // Gravity (the wall run applies its own while attached).
-            if (!grounded && !wallRunning)
+            // Gravity (the wall run applies its own while attached; a target pull has none until the launch).
+            if (!grounded && !wallRunning && !targetPulling)
             {
                 bool gravityPaused = boostTimer > 0f && boostHoldsAltitude;
                 if (!gravityPaused)
@@ -198,11 +209,14 @@ namespace ProjectVelocity
             }
 
             BeginWallContacts();
+            Vector3 positionBeforeMove = transform.position;
             controller.Move(moveVelocity * dt + WallSnapOffset(dt));
             lastMoveVelocity = moveVelocity;
+            CheckTargetPullProgress(t, moveVelocity * dt, transform.position - positionBeforeMove);
 
-            UpdateGrounding(t, dt, jumpedThisFrame, moveVelocity);
-            UpdateWallState(t, wishDir, wishAmount, jumpedThisFrame);
+            // While a target pulls you in, you neither land nor catch walls; once it lets go, both work as usual.
+            UpdateGrounding(t, dt, jumpedThisFrame || targetPulling, moveVelocity);
+            UpdateWallState(t, wishDir, wishAmount, jumpedThisFrame || targetPulling);
         }
 
         /// <summary>Instantly moves the character and clears all motion.</summary>
@@ -224,6 +238,7 @@ namespace ProjectVelocity
             boostCooldownTimer = 0f;
             airBoostsUsed = 0;
             ResetWallState();
+            ResetTargetState();
         }
 
         /// <summary>
@@ -272,6 +287,10 @@ namespace ProjectVelocity
                 return;
             if (!grounded && airBoostsUsed >= t.maxAirBoosts)
                 return;
+
+            // Boosting during a target pull breaks out of it in the boost direction.
+            if (targetPulling)
+                EndTargetPull(t, false);
 
             if (wallRunning)
             {

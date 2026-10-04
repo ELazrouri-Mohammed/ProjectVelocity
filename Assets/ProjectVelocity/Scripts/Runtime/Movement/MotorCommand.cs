@@ -16,5 +16,8 @@ namespace ProjectVelocity
         public bool JumpPressed;
         public bool JumpHeld;
         public bool BoostPressed;
+
+        /// <summary>Traversal target to launch through this frame, or null. Chosen by <see cref="TraversalTargeting"/>.</summary>
+        public TraversalTarget ActivateTarget;
     }
 }

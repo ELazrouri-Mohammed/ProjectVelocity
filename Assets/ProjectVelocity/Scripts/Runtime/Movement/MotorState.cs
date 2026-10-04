@@ -7,5 +7,7 @@ namespace ProjectVelocity
         Air,
         Boost,
         Wall,
+        /// <summary>Being pulled through a traversal target.</summary>
+        Target,
     }
 }

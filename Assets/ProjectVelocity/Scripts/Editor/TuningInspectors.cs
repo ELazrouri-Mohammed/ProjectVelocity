@@ -53,4 +53,28 @@ namespace ProjectVelocity.EditorTools
     sealed class VelocityCameraEditor : TuningHostEditor
     {
     }
+
+    /// <summary>Points to where the target feel values live.</summary>
+    [CustomEditor(typeof(TraversalTargeting))]
+    sealed class TraversalTargetingEditor : Editor
+    {
+        public override void OnInspectorGUI()
+        {
+            DrawDefaultInspector();
+            EditorGUILayout.HelpBox("Selection, propulsion and chaining values are in Movement Tuning under Traversal Targets " +
+                                    "(shown on the Velocity Motor above).", MessageType.None);
+        }
+    }
+
+    [CustomEditor(typeof(TraversalTarget)), CanEditMultipleObjects]
+    sealed class TraversalTargetEditor : Editor
+    {
+        public override void OnInspectorGUI()
+        {
+            EditorGUILayout.HelpBox("Shared values (detection range, propulsion speed, upward bias, momentum, air boost refresh) are in " +
+                                    "Movement Tuning under Traversal Targets, on the Player. The values here adjust this target only.",
+                MessageType.None);
+            DrawDefaultInspector();
+        }
+    }
 }
