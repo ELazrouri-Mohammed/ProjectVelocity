@@ -121,25 +121,32 @@ namespace ProjectVelocity
                 $"FPS    {fps:0}";
         }
 
-        /// <summary>The reality transformation that is playing (or the first one), or null when the scene has none.</summary>
+        /// <summary>
+        /// How many reality stages have gone off, and the one moving right now (the latest to start), or null when the scene
+        /// has none.
+        /// </summary>
         static string BuildReality()
         {
             var sequences = RealityTransformSequence.Active;
-            RealityTransformSequence shown = null;
-            for (int i = 0; i < sequences.Count; i++)
-            {
-                if (shown == null || sequences[i].State == RealityTransformSequence.Phase.Playing)
-                    shown = sequences[i];
-            }
-            if (shown == null)
+            if (sequences.Count == 0)
                 return null;
 
-            return shown.State switch
+            int started = 0;
+            RealityTransformSequence moving = null;
+            for (int i = 0; i < sequences.Count; i++)
             {
-                RealityTransformSequence.Phase.Playing => $"Reality  SHIFTING   {shown.Elapsed:0.0}s / {shown.TotalDuration:0.0}s",
-                RealityTransformSequence.Phase.Complete => $"Reality  in place (took {shown.TotalDuration:0.0}s)   R / RESET puts it back",
-                _ => "Reality  dormant",
-            };
+                RealityTransformSequence sequence = sequences[i];
+                if (sequence.State == RealityTransformSequence.Phase.Dormant)
+                    continue;
+                started++;
+                if (sequence.State == RealityTransformSequence.Phase.Playing && (moving == null || sequence.Elapsed < moving.Elapsed))
+                    moving = sequence;
+            }
+
+            string stages = $"Reality  {started}/{sequences.Count} stages";
+            if (moving != null)
+                return $"{stages}   {moving.name}  {moving.Elapsed:0.0}s";
+            return started == sequences.Count ? stages + "   all in place (R / RESET puts it back)" : stages;
         }
 
         string BuildCombat()

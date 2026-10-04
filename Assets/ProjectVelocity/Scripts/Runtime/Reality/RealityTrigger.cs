@@ -3,12 +3,13 @@ using UnityEngine;
 namespace ProjectVelocity
 {
     /// <summary>
-    /// Starts a <see cref="RealityTransformSequence"/> the first time the player runs through its volume, heading along the
-    /// route. Automatic: no button, and nothing about the player, the camera or time changes.
-    /// This object marks where the transformed route has to be ready (the edge of the gap) and faces the way the route
-    /// runs; the volume sits Lead Distance metres before it. It is a plain box checked against the path the player moved
-    /// each frame, not a physics trigger, so no speed can skip it and nothing else ever bumps into it.
-    /// When the player respawns (R / RESET, or a fall), it snaps the sequence back to its start and can fire again.
+    /// Starts a <see cref="RealityTransformSequence"/> (one stage) the first time the player runs through its volume,
+    /// heading along the route. Automatic: no button, and nothing about the player, the camera or time changes. A route can
+    /// have several, so the world reacts progressively as the player moves through it.
+    /// This object marks the point the stage is timed against (e.g. where its first obstacle lands) and faces the way the
+    /// route runs; the volume sits Lead Distance metres before it. It is a plain box checked against the path the player
+    /// moved each frame, not a physics trigger, so no speed can skip it and nothing else ever bumps into it.
+    /// When the player respawns (R / RESET, or a fall), it snaps its stage back to the start and can fire again.
     /// </summary>
     [DisallowMultipleComponent]
     public sealed class RealityTrigger : MonoBehaviour
