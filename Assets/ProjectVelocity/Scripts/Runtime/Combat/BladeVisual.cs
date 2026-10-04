@@ -3,10 +3,11 @@ using UnityEngine;
 namespace ProjectVelocity
 {
     /// <summary>
-    /// Placeholder blade animation and slash effect. Purely visual: <see cref="CombatController"/> says when to draw back
-    /// (during a lunge), when to swing and whether the swing connected. The blade swings in the body's frame; the slash arc is
-    /// aimed along the attack itself, so it reads even before the body has turned. Allocation-free: poses are interpolated by
-    /// hand and the arc fades through a material property block.
+    /// Placeholder sword-arm animation and slash effect. Purely visual: <see cref="CombatController"/> says when to draw back
+    /// (during a lunge), when to swing and whether the swing connected. The arm and blade swing together from the shoulder in
+    /// the body's frame, and <see cref="HumanoidVisual"/> twists the torso along with it; the slash arc is aimed along the attack
+    /// itself, so it reads even before the body has turned. Allocation-free: poses are interpolated by hand and the arc fades
+    /// through a material property block.
     /// </summary>
     [DisallowMultipleComponent]
     public sealed class BladeVisual : MonoBehaviour
@@ -24,21 +25,24 @@ namespace ProjectVelocity
         static readonly int ColorId = Shader.PropertyToID("_Color");
 
         [Header("Parts")]
-        [Tooltip("Turned to swing the blade: the hand, a child of the character's visual root. The blade points along its +Z.")]
+        [Tooltip("Turned to swing the blade: the sword arm's shoulder. The arm, the hand and the blade all point along its +Z.")]
         [SerializeField] Transform bladePivot;
 
         [Tooltip("The slash arc: a flat crescent opening along +Z, a child of the player at chest height. Hidden between swings.")]
         [SerializeField] Renderer slashArc;
 
-        [Header("Blade Poses (hand rotation, degrees)")]
+        [Header("Sword Arm Poses (shoulder rotation, degrees)")]
         [Tooltip("Held back and low while running.")]
-        [SerializeField] Vector3 restPose = new Vector3(27f, 157f, 0f);
+        [SerializeField] Vector3 restPose = new Vector3(35f, 160f, 0f);
 
         [Tooltip("Drawn back to the right, ready to cut. Held while lunging.")]
         [SerializeField] Vector3 windupPose = new Vector3(-8f, 115f, -25f);
 
         [Tooltip("End of the cut, across to the left. The swing sweeps through the front, the return carries on round the back.")]
-        [SerializeField] Vector3 swingEndPose = new Vector3(10f, -65f, 25f);
+        [SerializeField] Vector3 swingEndPose = new Vector3(10f, -55f, 25f);
+
+        [Tooltip("How far (degrees) the arm lifts on the way back to rest, so the sword goes over the shoulder, not through the body.")]
+        [SerializeField, Range(0f, 120f)] float returnLift = 80f;
 
         [Header("Timing (s)")]
         [SerializeField, Min(0.01f)] float windupTime = 0.05f;
@@ -64,18 +68,27 @@ namespace ProjectVelocity
 
         Phase phase = Phase.Rest;
         float phaseTime;
-        // Current hand rotation as Euler angles, with yaw unwrapped so a swing always sweeps the intended way round.
+        // Current sword-arm rotation as Euler angles, with yaw unwrapped so a swing always sweeps the intended way round.
         Vector3 pose;
         Vector3 poseFrom;
+        // Torso twist that goes with the pose: +1 drawn back (sword shoulder back), -1 at the end of the cut, 0 at rest.
+        float twist;
+        float twistFrom;
         MaterialPropertyBlock block;
         Vector3 slashDirection = Vector3.forward;
         float slashTimer;
         bool slashHit;
 
+        /// <summary>Whether the sword arm is anywhere but at rest (drawn back, swinging or returning).</summary>
+        public bool IsSwinging => phase != Phase.Rest;
+
+        /// <summary>How far the torso should twist with the swing: +1 drawn back, -1 at the end of the cut, 0 at rest.</summary>
+        public float BodyTwist => twist;
+
         /// <summary>Hooks up the parts (used by the movement test builder).</summary>
-        public void SetParts(Transform hand, Renderer arc)
+        public void SetParts(Transform swordArm, Renderer arc)
         {
-            bladePivot = hand;
+            bladePivot = swordArm;
             slashArc = arc;
         }
 
@@ -83,6 +96,7 @@ namespace ProjectVelocity
         public void PlayWindup()
         {
             poseFrom = Unwrapped(pose, windupPose.y);
+            twistFrom = twist;
             Enter(Phase.Windup);
         }
 
@@ -90,6 +104,7 @@ namespace ProjectVelocity
         public void PlaySlash(Vector3 direction)
         {
             poseFrom = Unwrapped(pose, swingEndPose.y);
+            twistFrom = twist;
             Enter(Phase.Swing);
 
             if (slashArc == null)
@@ -112,6 +127,7 @@ namespace ProjectVelocity
         public void ResetPose()
         {
             phase = Phase.Rest;
+            twist = 0f;
             SetPose(restPose);
             if (slashArc != null)
                 slashArc.enabled = false;
@@ -139,11 +155,14 @@ namespace ProjectVelocity
             switch (phase)
             {
                 case Phase.Windup:
-                    SetPose(Vector3.Lerp(poseFrom, windupPose, EaseOut(phaseTime / windupTime)));
+                    float draw = EaseOut(phaseTime / windupTime);
+                    SetPose(Vector3.Lerp(poseFrom, windupPose, draw));
+                    twist = Mathf.Lerp(twistFrom, 1f, draw);
                     break;
                 case Phase.Swing:
                     float swing = phaseTime / swingTime;
                     SetPose(Vector3.Lerp(poseFrom, swingEndPose, EaseOut(swing)));
+                    twist = Mathf.Lerp(twistFrom, -1f, EaseOut(swing));
                     if (swing >= 1f)
                         Enter(Phase.Hold);
                     break;
@@ -152,14 +171,18 @@ namespace ProjectVelocity
                         Enter(Phase.Return);
                     break;
                 case Phase.Return:
-                    // Carry on round the back to rest, the way the cut was going.
-                    float back = phaseTime / returnTime;
+                    // Carry on round the back to rest, the way the cut was going, lifting the sword over the shoulder.
+                    float back = EaseInOut(phaseTime / returnTime);
                     Vector3 rest = restPose;
                     rest.y -= 360f;
-                    SetPose(Vector3.Lerp(swingEndPose, rest, EaseInOut(back)));
-                    if (back >= 1f)
+                    Vector3 returning = Vector3.Lerp(swingEndPose, rest, back);
+                    returning.x -= returnLift * Mathf.Sin(back * Mathf.PI);
+                    SetPose(returning);
+                    twist = Mathf.Lerp(-1f, 0f, back);
+                    if (phaseTime >= returnTime)
                     {
                         phase = Phase.Rest;
+                        twist = 0f;
                         SetPose(restPose);
                     }
                     break;

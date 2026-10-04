@@ -50,9 +50,8 @@ namespace ProjectVelocity.EditorTools
         const int EnemyShardCount = 6;
         const float EnemyShardSize = 0.28f;
 
-        // Placeholder blade, held in the right hand, and the slash arc it leaves (radii in m, at chest height).
-        static readonly Vector3 HandPosition = new Vector3(0.48f, 1.0f, 0.05f);
-        const float SlashHeight = 1.0f;
+        // Slash arc the sword leaves (radii in m), at the height the sword arm swings through.
+        const float SlashHeight = 1.25f;
         const float SlashInnerRadius = 0.6f;
         const float SlashOuterRadius = 2.4f;
         const float SlashArcDegrees = 150f;
@@ -586,16 +585,23 @@ namespace ProjectVelocity.EditorTools
             selector.DesktopInput = desktopInput;
             selector.MobileInput = mobileInput;
 
-            // Placeholder body: a capsule with a dark visor so facing direction is readable.
+            // Placeholder humanoid combat proxy (presentation only): primitive limbs on empty joints, with a dark visor so facing
+            // is readable and the sword in the right hand. Character Visual turns and leans it, Humanoid Visual poses its limbs,
+            // Blade Visual swings the sword arm.
             Transform visualRoot = Group("Visual", player.transform);
-            Primitive(PrimitiveType.Capsule, "Body", visualRoot, new Vector3(0f, 0.9f, 0f), new Vector3(0.8f, 0.9f, 0.8f), p.PlayerBody);
-            Primitive(PrimitiveType.Cube, "Visor (front)", visualRoot, new Vector3(0f, 1.45f, 0.3f), new Vector3(0.55f, 0.16f, 0.25f), p.PlayerVisor);
+            HumanoidVisual.Rig rig = BuildHumanoid(visualRoot, p);
 
             var visual = player.AddComponent<CharacterVisual>();
             visual.Motor = motor;
             visual.VisualRoot = visualRoot;
 
-            combat.Blade = BuildBlade(player.transform, visualRoot, p);
+            BladeVisual blade = BuildSwordArm(player.transform, rig.rightShoulderMount, p);
+            combat.Blade = blade;
+
+            var humanoid = player.AddComponent<HumanoidVisual>();
+            humanoid.Motor = motor;
+            humanoid.Blade = blade;
+            humanoid.SetRig(rig);
 
             var hud = player.AddComponent<MovementDebugHUD>();
             hud.Motor = motor;
@@ -608,17 +614,83 @@ namespace ProjectVelocity.EditorTools
         }
 
         /// <summary>
-        /// Placeholder blade in the right hand, held back and low (it turns with the body), and the slash arc it leaves (aimed
-        /// along each attack, so it stays a child of the player rather than the body). Blade Visual animates both.
+        /// Placeholder humanoid, about 1.8 m tall like the character controller, slim and athletic: primitive limbs (yellow suit,
+        /// dark hands, feet, shorts and neck) on empty joint pivots that Humanoid Visual poses, limbs hanging along -Y. No
+        /// colliders: the controller's capsule still does all the moving. The right shoulder only gets a mount here; the sword
+        /// arm hangs from it (see <see cref="BuildSwordArm"/>).
         /// </summary>
-        static BladeVisual BuildBlade(Transform player, Transform visualRoot, Palette p)
+        static HumanoidVisual.Rig BuildHumanoid(Transform visualRoot, Palette p)
         {
-            Transform hand = Group("Blade (right hand)", visualRoot);
-            hand.localPosition = HandPosition;
-            hand.localRotation = Quaternion.Euler(27f, 157f, 0f); // Blade Visual's rest pose
-            Primitive(PrimitiveType.Cube, "Grip", hand, new Vector3(0f, 0f, -0.08f), new Vector3(0.06f, 0.06f, 0.22f), p.PlayerVisor);
-            Primitive(PrimitiveType.Cube, "Guard", hand, new Vector3(0f, 0f, 0.05f), new Vector3(0.24f, 0.06f, 0.05f), p.PlayerVisor);
-            Primitive(PrimitiveType.Cube, "Blade", hand, new Vector3(0f, 0f, 0.65f), new Vector3(0.04f, 0.12f, 1.1f), p.BladeSteel);
+            var rig = new HumanoidVisual.Rig();
+
+            rig.hips = Joint("Hips", visualRoot, new Vector3(0f, 0.95f, 0f));
+            Primitive(PrimitiveType.Cube, "Pelvis", rig.hips, Vector3.zero, new Vector3(0.28f, 0.17f, 0.18f), p.PlayerAccent);
+
+            rig.spine = Joint("Spine", rig.hips, new Vector3(0f, 0.08f, 0f));
+            Primitive(PrimitiveType.Capsule, "Waist", rig.spine, new Vector3(0f, 0.1f, 0f), new Vector3(0.24f, 0.12f, 0.17f), p.PlayerBody);
+            Primitive(PrimitiveType.Capsule, "Chest", rig.spine, new Vector3(0f, 0.27f, 0f), new Vector3(0.36f, 0.2f, 0.21f), p.PlayerBody);
+            Primitive(PrimitiveType.Capsule, "Neck", rig.spine, new Vector3(0f, 0.5f, 0f), new Vector3(0.09f, 0.06f, 0.09f), p.PlayerAccent);
+
+            rig.head = Joint("Head", rig.spine, new Vector3(0f, 0.56f, 0f));
+            Primitive(PrimitiveType.Sphere, "Skull", rig.head, new Vector3(0f, 0.12f, 0f), new Vector3(0.21f, 0.25f, 0.23f), p.PlayerBody);
+            Primitive(PrimitiveType.Cube, "Visor (front)", rig.head, new Vector3(0f, 0.14f, 0.1f), new Vector3(0.17f, 0.06f, 0.06f), p.PlayerVisor);
+
+            rig.leftShoulder = Joint("Shoulder L", rig.spine, new Vector3(-0.21f, 0.44f, 0f));
+            Limb("Upper Arm L", rig.leftShoulder, 0.3f, 0.085f, p.PlayerBody);
+            rig.leftElbow = Joint("Elbow L", rig.leftShoulder, new Vector3(0f, -0.3f, 0f));
+            Limb("Forearm L", rig.leftElbow, 0.26f, 0.075f, p.PlayerBody);
+            Primitive(PrimitiveType.Sphere, "Hand L", rig.leftElbow, new Vector3(0f, -0.3f, 0f), Vector3.one * 0.09f, p.PlayerAccent);
+
+            rig.rightShoulderMount = Joint("Shoulder R", rig.spine, new Vector3(0.21f, 0.44f, 0f));
+
+            BuildLeg("L", -1f, rig.hips, p, out rig.leftHip, out rig.leftKnee, out rig.leftAnkle);
+            BuildLeg("R", 1f, rig.hips, p, out rig.rightHip, out rig.rightKnee, out rig.rightAnkle);
+            return rig;
+        }
+
+        /// <summary>Thigh, shin and foot on hip, knee and ankle joints. <paramref name="side"/> -1 = left, 1 = right.</summary>
+        static void BuildLeg(string name, float side, Transform hips, Palette p, out Transform hip, out Transform knee, out Transform ankle)
+        {
+            hip = Joint($"Hip {name}", hips, new Vector3(0.1f * side, -0.03f, 0f));
+            Limb($"Thigh {name}", hip, 0.44f, 0.13f, p.PlayerBody);
+            knee = Joint($"Knee {name}", hip, new Vector3(0f, -0.44f, 0f));
+            Limb($"Shin {name}", knee, 0.41f, 0.1f, p.PlayerBody);
+            ankle = Joint($"Ankle {name}", knee, new Vector3(0f, -0.41f, 0f));
+            Primitive(PrimitiveType.Cube, $"Foot {name}", ankle, new Vector3(0f, -0.035f, 0.06f), new Vector3(0.09f, 0.07f, 0.24f), p.PlayerAccent);
+        }
+
+        /// <summary>Empty pivot for the humanoid's poses.</summary>
+        static Transform Joint(string name, Transform parent, Vector3 localPosition)
+        {
+            Transform joint = Group(name, parent);
+            joint.localPosition = localPosition;
+            return joint;
+        }
+
+        /// <summary>Capsule limb hanging along -Y from its joint.</summary>
+        static void Limb(string name, Transform joint, float length, float thickness, Material material)
+        {
+            Primitive(PrimitiveType.Capsule, name, joint, new Vector3(0f, -length * 0.5f, 0f), new Vector3(thickness, length * 0.5f, thickness), material);
+        }
+
+        /// <summary>
+        /// The sword arm: upper arm, forearm, hand and a placeholder sword in one straight line along +Z from the right
+        /// shoulder, so Blade Visual swings arm and blade together (the edge leads a horizontal cut). Plus the slash arc it
+        /// leaves, aimed along each attack, so it's a child of the player rather than the body.
+        /// </summary>
+        static BladeVisual BuildSwordArm(Transform player, Transform shoulderMount, Palette p)
+        {
+            Transform arm = Joint("Sword Arm", shoulderMount, Vector3.zero);
+            arm.localRotation = Quaternion.Euler(35f, 160f, 0f); // Blade Visual's rest pose
+            Quaternion alongArm = Quaternion.Euler(90f, 0f, 0f); // turns a capsule's length onto +Z
+            Primitive(PrimitiveType.Capsule, "Upper Arm R", arm, new Vector3(0f, 0f, 0.15f), new Vector3(0.085f, 0.15f, 0.085f), p.PlayerBody)
+                .transform.localRotation = alongArm;
+            Primitive(PrimitiveType.Capsule, "Forearm R", arm, new Vector3(0f, 0f, 0.43f), new Vector3(0.075f, 0.13f, 0.075f), p.PlayerBody)
+                .transform.localRotation = alongArm;
+            Primitive(PrimitiveType.Sphere, "Hand R", arm, new Vector3(0f, 0f, 0.6f), Vector3.one * 0.09f, p.PlayerAccent);
+            Primitive(PrimitiveType.Cube, "Grip", arm, new Vector3(0f, 0f, 0.62f), new Vector3(0.035f, 0.035f, 0.16f), p.PlayerVisor);
+            Primitive(PrimitiveType.Cube, "Guard", arm, new Vector3(0f, 0f, 0.71f), new Vector3(0.2f, 0.045f, 0.04f), p.PlayerVisor);
+            Primitive(PrimitiveType.Cube, "Blade", arm, new Vector3(0f, 0f, 1.255f), new Vector3(0.1f, 0.035f, 1.05f), p.BladeSteel);
 
             GameObject arc = CreateMeshObject("Slash Arc", player, player.position + Vector3.up * SlashHeight, Quaternion.identity,
                 p.SlashArc, p.SlashFx);
@@ -628,7 +700,7 @@ namespace ProjectVelocity.EditorTools
             arcRenderer.enabled = false;
 
             var blade = player.gameObject.AddComponent<BladeVisual>();
-            blade.SetParts(hand, arcRenderer);
+            blade.SetParts(arm, arcRenderer);
             return blade;
         }
 
@@ -845,6 +917,7 @@ namespace ProjectVelocity.EditorTools
             public Material Wall;
             public Material PlayerBody;
             public Material PlayerVisor;
+            public Material PlayerAccent;
             public Material TargetIdle;
             public Material TargetSelected;
             public Material TargetCooldown;
@@ -876,6 +949,7 @@ namespace ProjectVelocity.EditorTools
                 Wall = Mat("Graybox_Wall", new Color(0.30f, 0.72f, 0.68f), grid),
                 PlayerBody = Mat("Player_Body", new Color(1f, 0.82f, 0.2f), null),
                 PlayerVisor = Mat("Player_Visor", new Color(0.08f, 0.09f, 0.11f), null),
+                PlayerAccent = Mat("Player_Accent", new Color(0.2f, 0.22f, 0.26f), null),
                 TargetIdle = GlowMat("Target_Idle", new Color(0.50f, 0.25f, 0.85f), new Color(0.30f, 0.10f, 0.60f)),
                 TargetSelected = GlowMat("Target_Selected", new Color(1f, 0.35f, 0.85f), new Color(1f, 0.30f, 0.80f)),
                 TargetCooldown = GlowMat("Target_Cooldown", new Color(0.28f, 0.25f, 0.33f), Color.black),
