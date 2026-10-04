@@ -7,7 +7,7 @@ namespace ProjectVelocity
     /// High-speed kinematic character motor built on CharacterController.
     /// It knows nothing about devices or cameras: something calls <see cref="Tick"/> once per frame
     /// with a world-space <see cref="MotorCommand"/>. Wall traversal lives in VelocityMotor.WallRun.cs,
-    /// traversal-target propulsion in VelocityMotor.Targets.cs.
+    /// traversal-target propulsion in VelocityMotor.Targets.cs, the combat lunge in VelocityMotor.Lunge.cs.
     /// </summary>
     [DisallowMultipleComponent]
     [RequireComponent(typeof(CharacterController))]
@@ -51,6 +51,7 @@ namespace ProjectVelocity
 
         public MotorState State =>
             targetPulling ? MotorState.Target
+            : lunging ? MotorState.Lunge
             : wallRunning ? MotorState.Wall
             : boostTimer > 0f ? MotorState.Boost
             : grounded ? MotorState.Ground
@@ -133,14 +134,20 @@ namespace ProjectVelocity
                 wishDir = Vector3.zero;
             }
 
+            // A lunge first, so a boost or a target pressed on the same frame takes over from it.
+            if (command.Lunge.IsRequested)
+                TryStartLunge(t, command.Lunge);
             if (command.BoostPressed)
                 TryStartBoost(t, wishDir, command.FallbackDirection);
             if (command.ActivateTarget != null)
                 TryStartTargetPull(t, command.ActivateTarget);
 
-            // Horizontal motion. On a wall, the wall run drives both planar and vertical motion; so does a target pull.
+            // Horizontal motion. On a wall, the wall run drives both planar and vertical motion; so does a target pull,
+            // and so does a lunge started in the air.
             if (targetPulling)
                 UpdateTargetPull(t, dt);
+            else if (lunging)
+                UpdateLunge(dt);
             else if (wallRunning && KeepWallRun(t, wishDir, wishAmount))
                 UpdateWallRun(t, wishDir, wishAmount, dt);
             else if (boostTimer > 0f)
@@ -177,8 +184,8 @@ namespace ProjectVelocity
                 jumpedThisFrame = true;
             }
 
-            // Gravity (the wall run applies its own while attached; a target pull has none until the launch).
-            if (!grounded && !wallRunning && !targetPulling)
+            // Gravity (the wall run applies its own while attached; a target pull and an air lunge have none until they end).
+            if (!grounded && !wallRunning && !targetPulling && !LungeHoldsAltitude)
             {
                 bool gravityPaused = boostTimer > 0f && boostHoldsAltitude;
                 if (!gravityPaused)
@@ -213,10 +220,12 @@ namespace ProjectVelocity
             controller.Move(moveVelocity * dt + WallSnapOffset(dt));
             lastMoveVelocity = moveVelocity;
             CheckTargetPullProgress(t, moveVelocity * dt, transform.position - positionBeforeMove);
+            CheckLungeProgress(moveVelocity * dt, transform.position - positionBeforeMove);
 
             // While a target pulls you in, you neither land nor catch walls; once it lets go, both work as usual.
+            // A lunge can land, but doesn't catch walls until it's over.
             UpdateGrounding(t, dt, jumpedThisFrame || targetPulling, moveVelocity);
-            UpdateWallState(t, wishDir, wishAmount, jumpedThisFrame || targetPulling);
+            UpdateWallState(t, wishDir, wishAmount, jumpedThisFrame || targetPulling || lunging);
         }
 
         /// <summary>Instantly moves the character and clears all motion.</summary>
@@ -239,6 +248,7 @@ namespace ProjectVelocity
             airBoostsUsed = 0;
             ResetWallState();
             ResetTargetState();
+            EndLunge();
         }
 
         /// <summary>
@@ -288,9 +298,10 @@ namespace ProjectVelocity
             if (!grounded && airBoostsUsed >= t.maxAirBoosts)
                 return;
 
-            // Boosting during a target pull breaks out of it in the boost direction.
+            // Boosting during a target pull or a lunge breaks out of it in the boost direction.
             if (targetPulling)
                 EndTargetPull(t, false);
+            EndLunge();
 
             if (wallRunning)
             {

@@ -10,6 +10,8 @@ namespace ProjectVelocity
         Boost,
         Action,
         Reset,
+        /// <summary>Added last so the earlier buttons keep their places.</summary>
+        Attack,
     }
 
     /// <summary>
@@ -21,7 +23,7 @@ namespace ProjectVelocity
     [RequireComponent(typeof(Canvas))]
     public sealed class TouchControlsView : MonoBehaviour
     {
-        public const int ButtonCount = 4;
+        public const int ButtonCount = 5;
 
         // Knob diameter relative to the stick's travel diameter.
         const float KnobSize = 0.9f;
@@ -29,7 +31,7 @@ namespace ProjectVelocity
         [SerializeField] RectTransform stickBase;
         [SerializeField] RectTransform stickKnob;
 
-        [Tooltip("Jump, Boost, Action, Reset (in that order).")]
+        [Tooltip("Jump, Boost, Action, Reset, Attack (in that order).")]
         [SerializeField] RectTransform[] buttons = new RectTransform[ButtonCount];
 
         [Tooltip("Opacity of controls that aren't being touched.")]

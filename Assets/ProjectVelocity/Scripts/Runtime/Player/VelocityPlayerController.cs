@@ -3,8 +3,9 @@ using UnityEngine;
 namespace ProjectVelocity
 {
     /// <summary>
-    /// Glue between input, camera, traversal targeting and motor. Each frame it reads device-independent intent,
-    /// turns the camera, updates the target selection, converts movement into camera-relative world space and drives the motor.
+    /// Glue between input, camera, traversal targeting, combat and motor. Each frame it reads device-independent intent,
+    /// turns the camera, updates the target selection and the attack, converts movement into camera-relative world space,
+    /// drives the motor, then lets the blade land.
     /// </summary>
     [DisallowMultipleComponent]
     [RequireComponent(typeof(VelocityMotor))]
@@ -20,6 +21,9 @@ namespace ProjectVelocity
 
         [Tooltip("Traversal target soft lock. The activate button launches through its selection. Optional.")]
         [SerializeField] TraversalTargeting targeting;
+
+        [Tooltip("Blade combat: the attack, its soft targeting and the kill reward. Optional.")]
+        [SerializeField] CombatController combat;
 
         [Tooltip("Falling below this height puts you back at the start.")]
         [SerializeField] float killHeight = -30f;
@@ -51,6 +55,12 @@ namespace ProjectVelocity
             set => targeting = value;
         }
 
+        public CombatController Combat
+        {
+            get => combat;
+            set => combat = value;
+        }
+
         void Awake()
         {
             if (motor == null)
@@ -61,6 +71,8 @@ namespace ProjectVelocity
                 cameraRig = Camera.main.GetComponent<VelocityCamera>();
             if (targeting == null)
                 targeting = GetComponent<TraversalTargeting>();
+            if (combat == null)
+                combat = GetComponent<CombatController>();
 
             spawnPosition = transform.position;
             spawnYaw = transform.eulerAngles.y;
@@ -83,6 +95,9 @@ namespace ProjectVelocity
             // Pick the most likely target before moving; the button only ever launches through that one.
             TraversalTarget activate = targeting != null ? targeting.Tick(intent.TargetPressed) : null;
 
+            // The attack picks its enemy the same way; reaching for one beyond the blade becomes a lunge for the motor.
+            MotorLunge lunge = combat != null ? combat.Tick(intent.AttackPressed, forward, dt) : default;
+
             var command = new MotorCommand
             {
                 MoveDirection = Vector3.ClampMagnitude(right * intent.Move.x + forward * intent.Move.y, 1f),
@@ -91,8 +106,11 @@ namespace ProjectVelocity
                 JumpHeld = intent.JumpHeld,
                 BoostPressed = intent.BoostPressed,
                 ActivateTarget = activate,
+                Lunge = lunge,
             };
             motor.Tick(command, dt);
+            if (combat != null)
+                combat.AfterMove();
 
             if (intent.RespawnPressed || transform.position.y < killHeight)
                 Respawn();
@@ -103,6 +121,8 @@ namespace ProjectVelocity
             motor.Teleport(spawnPosition);
             if (cameraRig != null)
                 cameraRig.SnapBehindTarget(spawnYaw);
+            if (combat != null)
+                combat.ResetCombat();
         }
     }
 }

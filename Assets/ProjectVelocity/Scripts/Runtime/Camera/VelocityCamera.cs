@@ -93,6 +93,16 @@ namespace ProjectVelocity
             pitch = Mathf.Clamp(pitch + (t.invertY ? degrees.y : -degrees.y), t.minPitch, t.maxPitch);
         }
 
+        /// <summary>
+        /// Tiny impact feedback: widens the field of view by <paramref name="degrees"/> at once, and the usual speed smoothing
+        /// eases it back. Never moves or turns the camera.
+        /// </summary>
+        public void KickFieldOfView(float degrees)
+        {
+            if (cam != null && degrees != 0f)
+                cam.fieldOfView = Mathf.Clamp(cam.fieldOfView + degrees, 1f, 179f);
+        }
+
         /// <summary>Instantly places the camera behind the target, facing the given yaw.</summary>
         public void SnapBehindTarget(float facingYaw)
         {
@@ -127,9 +137,9 @@ namespace ProjectVelocity
 
             if (cam != null)
             {
-                // On a wall or in a target pull, upward speed counts too, so a climb or a steep pull doesn't narrow the view.
+                // On a wall, in a target pull or a lunge, upward speed counts too, so a climb or a steep pull doesn't narrow the view.
                 float speed = targetMotor == null ? 0f
-                    : targetMotor.IsWallRunning || targetMotor.IsTargetPulling ? targetMotor.Velocity.magnitude
+                    : targetMotor.IsWallRunning || targetMotor.IsTargetPulling || targetMotor.IsLunging ? targetMotor.Velocity.magnitude
                     : targetMotor.Speed;
                 float speed01 = Mathf.InverseLerp(t.fovMinSpeed, t.fovMaxSpeed, speed);
                 float targetFov = Mathf.Lerp(t.fovMin, t.fovMax, speed01);

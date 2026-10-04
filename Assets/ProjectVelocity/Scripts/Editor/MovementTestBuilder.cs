@@ -21,6 +21,7 @@ namespace ProjectVelocity.EditorTools
         const string MovementTuningPath = Root + "/Settings/MovementTuning.asset";
         const string CameraTuningPath = Root + "/Settings/CameraTuning.asset";
         const string TouchControlsTuningPath = Root + "/Settings/TouchControlsTuning.asset";
+        const string CombatTuningPath = Root + "/Settings/CombatTuning.asset";
         const string GeneratedFolder = Root + "/Generated";
         const string GridTexturePath = GeneratedFolder + "/GrayboxGrid.png";
         const string TouchDiscPath = GeneratedFolder + "/TouchDisc.png";
@@ -39,6 +40,22 @@ namespace ProjectVelocity.EditorTools
         const float TargetRingRadius = 1.45f;
         // Extra Upward Bias for the targets that redirect you upward (added to Target Upward Bias in Movement Tuning).
         const float UpwardTargetBias = 0.35f;
+
+        // Placeholder enemy (Sentinel): a glowing diamond (half width, half height, m) inside a tilted ring, chest high
+        // when it sits on the ground, plus a few hidden shards for its death burst.
+        const float EnemyCoreRadius = 0.55f;
+        const float EnemyCoreHalfHeight = 0.8f;
+        const float EnemyRingRadius = 0.95f;
+        const float GroundEnemyHeight = 1.4f;
+        const int EnemyShardCount = 6;
+        const float EnemyShardSize = 0.28f;
+
+        // Placeholder blade, held in the right hand, and the slash arc it leaves (radii in m, at chest height).
+        static readonly Vector3 HandPosition = new Vector3(0.48f, 1.0f, 0.05f);
+        const float SlashHeight = 1.0f;
+        const float SlashInnerRadius = 0.6f;
+        const float SlashOuterRadius = 2.4f;
+        const float SlashArcDegrees = 150f;
 
         [MenuItem("Tools/Project Velocity/Build Movement Test", priority = 0)]
         public static void BuildFromMenu()
@@ -87,6 +104,12 @@ namespace ProjectVelocity.EditorTools
             SelectAsset(LoadOrCreateAsset<TouchControlsTuning>(TouchControlsTuningPath));
         }
 
+        [MenuItem("Tools/Project Velocity/Select Combat Tuning", priority = 23)]
+        public static void SelectCombatTuning()
+        {
+            SelectAsset(LoadOrCreateAsset<CombatTuning>(CombatTuningPath));
+        }
+
         public static void Build()
         {
             EnsureFolder(Root + "/Scenes");
@@ -96,6 +119,7 @@ namespace ProjectVelocity.EditorTools
             MovementTuning movementTuning = LoadOrCreateAsset<MovementTuning>(MovementTuningPath);
             CameraTuning cameraTuning = LoadOrCreateAsset<CameraTuning>(CameraTuningPath);
             TouchControlsTuning touchTuning = LoadOrCreateAsset<TouchControlsTuning>(TouchControlsTuningPath);
+            CombatTuning combatTuning = LoadOrCreateAsset<CombatTuning>(CombatTuningPath);
             Palette palette = CreatePalette();
 
             Scene scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
@@ -103,11 +127,13 @@ namespace ProjectVelocity.EditorTools
             BuildPlayground(palette);
 
             TouchControlsView touchControls = BuildTouchControls();
-            GameObject player = BuildPlayer(palette, movementTuning, touchTuning, touchControls);
+            GameObject player = BuildPlayer(palette, movementTuning, touchTuning, touchControls, combatTuning);
             var motor = player.GetComponent<VelocityMotor>();
             VelocityCamera cameraRig = BuildCamera(player, motor, cameraTuning);
             player.GetComponent<VelocityPlayerController>().CameraRig = cameraRig;
             player.GetComponent<TraversalTargeting>().Viewpoint = cameraRig.transform;
+            player.GetComponent<CombatTargeting>().Viewpoint = cameraRig.transform;
+            player.GetComponent<CombatController>().CameraRig = cameraRig;
 
             EditorSceneManager.SaveScene(scene, ScenePath);
             AddSceneToBuildSettings();
@@ -118,7 +144,10 @@ namespace ProjectVelocity.EditorTools
                       "The wall traversal section is behind the spawn: turn around and run south. " +
                       "The traversal target section is behind the spawn to the left: turn around and run south-east; " +
                       "E launches you through the selected (pink) target. " +
-                      "Tune movement and targets on the Player (Velocity Motor) and camera on the Main Camera (Velocity Camera). " +
+                      "The combat section is to the left of the spawn: turn left and run west; Left Mouse or F attacks the " +
+                      "selected (yellow) enemy. " +
+                      "Tune movement and targets on the Player (Velocity Motor), combat on the Player (Combat Controller) and " +
+                      "camera on the Main Camera (Velocity Camera). " +
                       "Touch controls appear on Android/iOS and in the Device Simulator; to try them in the Game view, set " +
                       "Editor Controls to Mobile on the Player's Input Source Selector. Tune them on the Player (Mobile Input Source).");
         }
@@ -215,6 +244,7 @@ namespace ProjectVelocity.EditorTools
 
             BuildWallSection(root, p);
             BuildTargetSection(root, p);
+            BuildCombatSection(root, p);
         }
 
         /// <summary>
@@ -341,6 +371,82 @@ namespace ProjectVelocity.EditorTools
         }
 
         /// <summary>
+        /// I: blade combat, to the left of the spawn (turn left and run west). Two lanes, each starting at a pair of red gate
+        /// markers at x = -15, running onto extra ground west of the main slab, clear of the routes to G and H.
+        /// Red diamonds are Sentinels: the selected one turns yellow and pulses, and Attack lunges at it and cuts it down.
+        /// They come back a few seconds after dying, and all at once when you respawn. Falls land on the ground, never off the level.
+        /// </summary>
+        static void BuildCombatSection(Transform root, Palette p)
+        {
+            Transform section = Group("I - Combat", root);
+
+            // Extra ground west of the main slab, for the far end of both lanes.
+            Box("Ground (combat)", section, -280f, -130f, -1f, 0f, -60f, 30f, p.Floor);
+
+            float[] laneCentres = { 0f, -32f };
+            foreach (float z in laneCentres)
+            {
+                Pillar(section, new Vector3(-15f, 0f, z - 8f), 1f, 6f, p.Marker);
+                Pillar(section, new Vector3(-15f, 0f, z + 8f), 1f, 6f, p.Marker);
+            }
+
+            // I1: one test at a time down a straight lane, chest high unless noted.
+            // A: straight ahead. B: off to the right, then to the left, while running down the middle.
+            // C: above a hurdle, out of reach from the ground: jump the hurdle and cut it on the way over.
+            // D: past the end of the wall on the right, too high to reach from the ground or the wall: wall run, wall jump in
+            // the last stretch of the wall, cut it.
+            Transform basics = Group("I1 - Combat Basics", section);
+            Enemy("Sentinel A - Straight Ahead", basics, new Vector3(-50f, GroundEnemyHeight, 0f), p);
+            Enemy("Sentinel B1 - Right", basics, new Vector3(-82f, GroundEnemyHeight, 4.5f), p);
+            Enemy("Sentinel B2 - Left", basics, new Vector3(-112f, GroundEnemyHeight, -4.5f), p);
+            Block("Hurdle (1.2 m)", basics, -145f, 0f, 2f, 12f, 1.2f, p.Block);
+            Enemy("Sentinel C - After A Jump (5.4 m)", basics, new Vector3(-145f, 5.4f, 0f), p);
+            Box("Wall (0-12 m)", basics, -210f, -180f, 0f, 12f, 7f, 8f, p.Wall);
+            Enemy("Sentinel D - After A Wall Jump (7.5 m)", basics, new Vector3(-216f, 7.5f, 1f), p);
+            Pillar(basics, new Vector3(-250f, 0f, -8f), 1f, 6f, p.Marker);
+            Pillar(basics, new Vector3(-250f, 0f, 8f), 1f, 6f, p.Marker);
+
+            // I2: the movement-combat chain. Kick ramp → jump → boost (the wall floats 4 m up, too high without the boost) →
+            // wall run → wall jump off the back half of the wall → cut the Sentinel (jump off earlier and air boost to it: the kill
+            // gives the boost back) → boost → traversal target → land on the 7 m finish.
+            Transform chain = Group("I2 - Movement-Combat Chain", section);
+            Ramp("Takeoff Ramp", chain, new Vector3(-60f, 0f, -32f), 270f, 8f, 8f, 2f, p.Ramp);
+            Box("Wall (4-14 m)", chain, -130f, -90f, 4f, 14f, -40f, -39f, p.Wall);
+            Enemy("Sentinel - After The Wall Jump (8.5 m)", chain, new Vector3(-140f, 8.5f, -33f), p);
+            Target("Target - After The Kill", chain, new Vector3(-185f, 10f, -32f), p);
+            Box("Finish (7 m)", chain, -258f, -200f, 0f, 7f, -44f, -20f, p.Elevated);
+        }
+
+        /// <summary>
+        /// Placeholder enemy (Sentinel): a glowing diamond inside a tilted dark ring, hovering in place, plus hidden shards for
+        /// its death burst. No collider, so it never stops the player: the blade measures its reach to the enemy's hurtbox.
+        /// </summary>
+        static CombatEnemy Enemy(string name, Transform parent, Vector3 position, Palette p)
+        {
+            var go = new GameObject(name);
+            go.transform.SetParent(parent, false);
+            go.transform.position = position;
+            var enemy = go.AddComponent<CombatEnemy>();
+
+            Transform visual = Group("Visual", go.transform);
+            GameObject core = CreateMeshObject("Core", visual, position, Quaternion.identity, p.EnemyCore, p.EnemyIdle);
+            CreateMeshObject("Ring", visual, position, Quaternion.Euler(70f, 0f, 0f), p.EnemyRing, p.Pillar);
+
+            Transform shardGroup = Group("Shards", go.transform);
+            var shards = new Transform[EnemyShardCount];
+            for (int i = 0; i < shards.Length; i++)
+            {
+                GameObject shard = Primitive(PrimitiveType.Cube, $"Shard {i + 1}", shardGroup, Vector3.zero, Vector3.one * EnemyShardSize, p.EnemyIdle);
+                shard.GetComponent<MeshRenderer>().shadowCastingMode = ShadowCastingMode.Off;
+                shard.SetActive(false);
+                shards[i] = shard.transform;
+            }
+
+            enemy.SetLook(visual, new[] { core.GetComponent<Renderer>() }, p.EnemyIdle, p.EnemySelected, p.EnemyHit, shards);
+            return enemy;
+        }
+
+        /// <summary>
         /// Placeholder traversal target: a glowing orb inside a ring that always faces the camera. No collider, so the
         /// player flies straight through it.
         /// </summary>
@@ -433,7 +539,8 @@ namespace ProjectVelocity.EditorTools
 
         // ------------------------------------------------------------------ Player & camera
 
-        static GameObject BuildPlayer(Palette p, MovementTuning tuning, TouchControlsTuning touchTuning, TouchControlsView touchControls)
+        static GameObject BuildPlayer(Palette p, MovementTuning tuning, TouchControlsTuning touchTuning, TouchControlsView touchControls,
+            CombatTuning combatTuning)
         {
             var player = new GameObject("Player");
             player.transform.position = SpawnPoint;
@@ -460,10 +567,19 @@ namespace ProjectVelocity.EditorTools
             var targeting = player.AddComponent<TraversalTargeting>();
             targeting.Motor = motor;
 
+            var combatTargeting = player.AddComponent<CombatTargeting>();
+            combatTargeting.Motor = motor;
+
+            var combat = player.AddComponent<CombatController>();
+            combat.Tuning = combatTuning;
+            combat.Motor = motor;
+            combat.Targeting = combatTargeting;
+
             var playerController = player.AddComponent<VelocityPlayerController>();
             playerController.Motor = motor;
             playerController.InputSource = desktopInput;
             playerController.Targeting = targeting;
+            playerController.Combat = combat;
 
             var selector = player.AddComponent<InputSourceSelector>();
             selector.Player = playerController;
@@ -479,13 +595,41 @@ namespace ProjectVelocity.EditorTools
             visual.Motor = motor;
             visual.VisualRoot = visualRoot;
 
+            combat.Blade = BuildBlade(player.transform, visualRoot, p);
+
             var hud = player.AddComponent<MovementDebugHUD>();
             hud.Motor = motor;
             hud.Targeting = targeting;
             hud.Player = playerController;
+            hud.Combat = combat;
 
             SetLayerRecursively(player.transform, PlayerLayer);
             return player;
+        }
+
+        /// <summary>
+        /// Placeholder blade in the right hand, held back and low (it turns with the body), and the slash arc it leaves (aimed
+        /// along each attack, so it stays a child of the player rather than the body). Blade Visual animates both.
+        /// </summary>
+        static BladeVisual BuildBlade(Transform player, Transform visualRoot, Palette p)
+        {
+            Transform hand = Group("Blade (right hand)", visualRoot);
+            hand.localPosition = HandPosition;
+            hand.localRotation = Quaternion.Euler(27f, 157f, 0f); // Blade Visual's rest pose
+            Primitive(PrimitiveType.Cube, "Grip", hand, new Vector3(0f, 0f, -0.08f), new Vector3(0.06f, 0.06f, 0.22f), p.PlayerVisor);
+            Primitive(PrimitiveType.Cube, "Guard", hand, new Vector3(0f, 0f, 0.05f), new Vector3(0.24f, 0.06f, 0.05f), p.PlayerVisor);
+            Primitive(PrimitiveType.Cube, "Blade", hand, new Vector3(0f, 0f, 0.65f), new Vector3(0.04f, 0.12f, 1.1f), p.BladeSteel);
+
+            GameObject arc = CreateMeshObject("Slash Arc", player, player.position + Vector3.up * SlashHeight, Quaternion.identity,
+                p.SlashArc, p.SlashFx);
+            var arcRenderer = arc.GetComponent<MeshRenderer>();
+            arcRenderer.shadowCastingMode = ShadowCastingMode.Off;
+            arcRenderer.receiveShadows = false;
+            arcRenderer.enabled = false;
+
+            var blade = player.gameObject.AddComponent<BladeVisual>();
+            blade.SetParts(hand, arcRenderer);
+            return blade;
         }
 
         static GameObject Primitive(PrimitiveType type, string name, Transform parent, Vector3 localPosition, Vector3 localScale, Material material)
@@ -535,8 +679,8 @@ namespace ProjectVelocity.EditorTools
         // ------------------------------------------------------------------ Touch controls
 
         /// <summary>
-        /// Prototype landscape touch controls: a movement stick (left) and JUMP / BOOST / ACTION around the right thumb, plus a
-        /// small debug RESET. Hidden until the Mobile Input Source is in use. Positions and sizes come from Touch Controls Tuning
+        /// Prototype landscape touch controls: a movement stick (left) and JUMP / BOOST / ACTION / ATTACK around the right thumb,
+        /// plus a small debug RESET. Hidden until the Mobile Input Source is in use. Positions and sizes come from Touch Controls Tuning
         /// at runtime (inside the safe area), so the placement here is only a preview.
         /// </summary>
         static TouchControlsView BuildTouchControls()
@@ -557,14 +701,15 @@ namespace ProjectVelocity.EditorTools
             knob.anchorMin = knob.anchorMax = new Vector2(0.5f, 0.5f);
             knob.anchoredPosition = Vector2.zero;
 
-            // Colour-coded: violet ACTION matches the traversal targets it launches through.
+            // Colour-coded: violet ACTION matches the traversal targets it launches through, red ATTACK the enemies it cuts.
             RectTransform jump = UIButton("Jump", go.transform, pad, new Color(0.85f, 0.95f, 1f), "JUMP", 34, font, new Vector2(1670f, 240f), 105f);
             RectTransform boost = UIButton("Boost", go.transform, pad, new Color(1f, 0.72f, 0.35f), "BOOST", 28, font, new Vector2(1400f, 180f), 82f);
             RectTransform action = UIButton("Action", go.transform, pad, new Color(0.82f, 0.55f, 1f), "ACTION", 26, font, new Vector2(1695f, 495f), 82f);
             RectTransform reset = UIButton("Reset (debug)", go.transform, pad, new Color(0.8f, 0.8f, 0.8f), "RESET", 18, font, new Vector2(1830f, 1000f), 46f);
+            RectTransform attack = UIButton("Attack", go.transform, pad, new Color(1f, 0.42f, 0.38f), "ATTACK", 26, font, new Vector2(1470f, 400f), 90f);
 
             var view = go.AddComponent<TouchControlsView>();
-            view.SetParts(stick, knob, new[] { jump, boost, action, reset });
+            view.SetParts(stick, knob, new[] { jump, boost, action, reset, attack });
             return view;
         }
 
@@ -704,10 +849,18 @@ namespace ProjectVelocity.EditorTools
             public Material TargetSelected;
             public Material TargetCooldown;
             public Mesh TargetRing;
+            public Material EnemyIdle;
+            public Material EnemySelected;
+            public Material EnemyHit;
+            public Mesh EnemyCore;
+            public Mesh EnemyRing;
+            public Material BladeSteel;
+            public Material SlashFx;
+            public Mesh SlashArc;
         }
 
         // Colour-coded for readability only: orange = ramps, blue = elevated path, green = towers, red = markers, teal = wall-run walls,
-        // violet = traversal targets (pink while selected, grey while cooling down).
+        // violet = traversal targets (pink while selected, grey while cooling down), glowing red = enemies (yellow while selected).
         static Palette CreatePalette()
         {
             Texture2D grid = LoadOrCreateGridTexture();
@@ -727,7 +880,54 @@ namespace ProjectVelocity.EditorTools
                 TargetSelected = GlowMat("Target_Selected", new Color(1f, 0.35f, 0.85f), new Color(1f, 0.30f, 0.80f)),
                 TargetCooldown = GlowMat("Target_Cooldown", new Color(0.28f, 0.25f, 0.33f), Color.black),
                 TargetRing = GrayboxMeshes.Torus(TargetRingRadius, 0.12f, 48, 10),
+                EnemyIdle = GlowMat("Enemy_Idle", new Color(0.85f, 0.12f, 0.12f), new Color(0.75f, 0.05f, 0.05f)),
+                EnemySelected = GlowMat("Enemy_Selected", new Color(1f, 0.85f, 0.3f), new Color(1f, 0.7f, 0.15f)),
+                EnemyHit = GlowMat("Enemy_Hit", Color.white, Color.white),
+                EnemyCore = GrayboxMeshes.Octahedron(EnemyCoreRadius, EnemyCoreHalfHeight),
+                EnemyRing = GrayboxMeshes.Torus(EnemyRingRadius, 0.06f, 32, 6),
+                BladeSteel = GlowMat("Blade_Steel", new Color(0.8f, 0.86f, 0.95f), new Color(0.15f, 0.3f, 0.45f)),
+                SlashFx = FxMat("Slash_Arc", new Color(0.65f, 0.92f, 1f, 0.6f)),
+                SlashArc = GrayboxMeshes.Crescent(SlashInnerRadius, SlashOuterRadius, SlashArcDegrees, 24),
             };
+        }
+
+        /// <summary>
+        /// Unlit, transparent, double-sided material for placeholder effects (the slash arc). Its colour and alpha are driven at
+        /// runtime through a property block, so the asset only sets the surface up.
+        /// </summary>
+        static Material FxMat(string name, Color color)
+        {
+            string path = $"{GeneratedFolder}/{name}.mat";
+            Shader shader = Shader.Find("Universal Render Pipeline/Unlit");
+            if (shader == null)
+                shader = Shader.Find("Sprites/Default");
+
+            Material material = AssetDatabase.LoadAssetAtPath<Material>(path);
+            if (material == null)
+            {
+                material = new Material(shader);
+                AssetDatabase.CreateAsset(material, path);
+            }
+            else if (material.shader != shader)
+            {
+                material.shader = shader;
+            }
+
+            material.color = color; // _BaseColor on URP Unlit
+            // URP surface options: Transparent, Alpha blend, Both sides, no depth write.
+            material.SetFloat("_Surface", 1f);
+            material.SetFloat("_Blend", 0f);
+            material.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            material.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            material.SetFloat("_SrcBlendAlpha", (float)UnityEngine.Rendering.BlendMode.One);
+            material.SetFloat("_DstBlendAlpha", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            material.SetFloat("_ZWrite", 0f);
+            material.SetFloat("_Cull", (float)UnityEngine.Rendering.CullMode.Off);
+            material.SetOverrideTag("RenderType", "Transparent");
+            material.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            material.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+            EditorUtility.SetDirty(material);
+            return material;
         }
 
         /// <summary>A <see cref="Mat"/> that glows, so targets read from a distance. Black emission = no glow.</summary>

@@ -59,6 +59,11 @@ namespace ProjectVelocity.EditorTools
     {
     }
 
+    [CustomEditor(typeof(CombatController))]
+    sealed class CombatControllerEditor : TuningHostEditor
+    {
+    }
+
     /// <summary>Explains which controls will be used, and how to try the touch controls in the Editor.</summary>
     [CustomEditor(typeof(InputSourceSelector))]
     sealed class InputSourceSelectorEditor : Editor
@@ -96,6 +101,29 @@ namespace ProjectVelocity.EditorTools
             EditorGUILayout.HelpBox("Shared values (detection range, propulsion speed, upward bias, momentum, air boost refresh) are in " +
                                     "Movement Tuning under Traversal Targets, on the Player. The values here adjust this target only.",
                 MessageType.None);
+            DrawDefaultInspector();
+        }
+    }
+
+    /// <summary>Points to where the combat selection values live.</summary>
+    [CustomEditor(typeof(CombatTargeting))]
+    sealed class CombatTargetingEditor : Editor
+    {
+        public override void OnInspectorGUI()
+        {
+            DrawDefaultInspector();
+            EditorGUILayout.HelpBox("Attack range, selection angle and the camera / movement weighting are in Combat Tuning under " +
+                                    "Target Selection (shown on the Combat Controller).", MessageType.None);
+        }
+    }
+
+    [CustomEditor(typeof(CombatEnemy)), CanEditMultipleObjects]
+    sealed class CombatEnemyEditor : Editor
+    {
+        public override void OnInspectorGUI()
+        {
+            EditorGUILayout.HelpBox("Blade reach, targeting, lunge and kill reward are in Combat Tuning, on the Player (Combat " +
+                                    "Controller). The values here adjust this enemy only.", MessageType.None);
             DrawDefaultInspector();
         }
     }

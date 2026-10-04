@@ -9,7 +9,7 @@ namespace ProjectVelocity
 {
     /// <summary>
     /// Two-thumb landscape touch controls, producing the same <see cref="PlayerIntent"/> as the desktop input:
-    /// a movement stick for the left thumb, camera drag on the right side, and JUMP / BOOST / ACTION around the right thumb.
+    /// a movement stick for the left thumb, camera drag on the right side, and JUMP / BOOST / ACTION / ATTACK around the right thumb.
     /// Every touch belongs to whatever it started on until it lifts, so thumbs never steal each other's controls
     /// and any combination (move + look + button) works at once.
     /// </summary>
@@ -53,7 +53,7 @@ namespace ProjectVelocity
         Vector2 stickValue;
         int lookTouch = NoTouch;
         Vector2 lookLastPosition;
-        readonly int[] buttonTouches = { NoTouch, NoTouch, NoTouch, NoTouch };
+        readonly int[] buttonTouches = { NoTouch, NoTouch, NoTouch, NoTouch, NoTouch };
         int pressedThisFrame;   // bit per TouchButton
 
         int processedFrame = -1;
@@ -195,6 +195,7 @@ namespace ProjectVelocity
                 JumpHeld = buttonTouches[(int)TouchButton.Jump] != NoTouch,
                 BoostPressed = WasPressed(TouchButton.Boost),
                 TargetPressed = WasPressed(TouchButton.Action),
+                AttackPressed = WasPressed(TouchButton.Attack),
                 RespawnPressed = WasPressed(TouchButton.Reset),
             };
             return intent;
@@ -378,6 +379,7 @@ namespace ProjectVelocity
             SetButton(TouchButton.Jump, new Vector2(right - t.jumpPosition.x * unit, bottom + t.jumpPosition.y * unit), t.jumpRadius * unit, true);
             SetButton(TouchButton.Boost, new Vector2(right - t.boostPosition.x * unit, bottom + t.boostPosition.y * unit), t.boostRadius * unit, true);
             SetButton(TouchButton.Action, new Vector2(right - t.actionPosition.x * unit, bottom + t.actionPosition.y * unit), t.actionRadius * unit, true);
+            SetButton(TouchButton.Attack, new Vector2(right - t.attackPosition.x * unit, bottom + t.attackPosition.y * unit), t.attackRadius * unit, true);
             SetButton(TouchButton.Reset, new Vector2(right - t.resetPosition.x * unit, top - t.resetPosition.y * unit), t.resetRadius * unit, t.showResetButton);
 
             if (view != null)

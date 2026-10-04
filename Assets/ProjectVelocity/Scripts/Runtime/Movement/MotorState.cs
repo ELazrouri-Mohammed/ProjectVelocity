@@ -9,5 +9,7 @@ namespace ProjectVelocity
         Wall,
         /// <summary>Being pulled through a traversal target.</summary>
         Target,
+        /// <summary>Lunging at an enemy (blade attack).</summary>
+        Lunge,
     }
 }

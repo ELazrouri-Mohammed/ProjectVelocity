@@ -30,6 +30,8 @@ MonoBehaviour:
   boostRadius: 82
   actionPosition: {x: 225, y: 495}
   actionRadius: 82
+  attackPosition: {x: 450, y: 400}
+  attackRadius: 90
   buttonHitScale: 1.15
   showResetButton: 1
   resetPosition: {x: 90, y: 80}
