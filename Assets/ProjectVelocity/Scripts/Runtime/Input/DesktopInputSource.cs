@@ -89,7 +89,7 @@ namespace ProjectVelocity
         }
 
         public override string ControlsHint =>
-            "WASD move   Mouse look   Space jump / wall jump   Shift boost   LMB / F attack   E target   R respawn   Esc free cursor";
+            "WASD move   Mouse look   Space jump / wall jump   Shift boost   LMB / F attack   E link (hold to swing)   R respawn   Esc free cursor";
 
         public override PlayerIntent ReadIntent()
         {
@@ -114,6 +114,7 @@ namespace ProjectVelocity
                 JumpHeld = jump.IsPressed(),
                 BoostPressed = boost.WasPressedThisFrame(),
                 TargetPressed = activateTarget.WasPressedThisFrame(),
+                TargetHeld = activateTarget.IsPressed(),
                 AttackPressed = attack.WasPressedThisFrame() && !clickCapturedCursor,
                 RespawnPressed = respawn.WasPressedThisFrame(),
             };

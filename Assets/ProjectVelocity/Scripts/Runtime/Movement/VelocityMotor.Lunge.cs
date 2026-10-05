@@ -18,8 +18,11 @@ namespace ProjectVelocity
         const float LungeArrivalDistance = 0.5f;
 
         public bool IsLunging => lunging;
-        /// <summary>Whether a lunge can start right now (not while a traversal target is pulling you in).</summary>
-        public bool CanLunge => !targetPulling;
+        /// <summary>
+        /// Whether a lunge can start right now: not while a traversal target pulls you in, nor while swinging (attacks during a
+        /// swing are cut in passing, without leaving the rope).
+        /// </summary>
+        public bool CanLunge => !targetPulling && !tethering;
 
         bool lunging;
         Vector3 lungeGoal;
@@ -131,6 +134,15 @@ namespace ProjectVelocity
         public void ReadyBoost()
         {
             boostCooldownTimer = 0f;
+        }
+
+        /// <summary>In the air, rise at least this fast (m/s), keeping horizontal speed (an aerial kill's pop). Not on the ground.</summary>
+        public void PopUp(float upSpeed)
+        {
+            if (grounded || wallRunning || targetPulling || tethering)
+                return;
+            verticalSpeed = Mathf.Max(verticalSpeed, upSpeed);
+            jumpRising = false;
         }
 
         /// <summary>Adds speed (m/s) along the current horizontal direction of travel. Does nothing while standing still.</summary>

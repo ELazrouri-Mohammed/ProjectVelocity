@@ -31,6 +31,12 @@ namespace ProjectVelocity
         [Tooltip("The slash arc: a flat crescent opening along +Z, a child of the player at chest height. Hidden between swings.")]
         [SerializeField] Renderer slashArc;
 
+        [Tooltip("Weapon trail at the blade tip: emits while the blade is moving. Optional.")]
+        [SerializeField] TrailRenderer trail;
+
+        [Tooltip("Also leave the trail while boosting (the blade streaks behind you). Needs the motor.")]
+        [SerializeField] VelocityMotor trailMotor;
+
         [Header("Sword Arm Poses (shoulder rotation, degrees)")]
         [Tooltip("Held back and low while running.")]
         [SerializeField] Vector3 restPose = new Vector3(35f, 160f, 0f);
@@ -78,6 +84,9 @@ namespace ProjectVelocity
         Vector3 slashDirection = Vector3.forward;
         float slashTimer;
         bool slashHit;
+        float slashTiltNow;
+        float slashSweepNow;
+        float slashScaleNow = 1f;
 
         /// <summary>Whether the sword arm is anywhere but at rest (drawn back, swinging or returning).</summary>
         public bool IsSwinging => phase != Phase.Rest;
@@ -92,6 +101,13 @@ namespace ProjectVelocity
             slashArc = arc;
         }
 
+        /// <summary>Hooks up the weapon trail (used by the vertical slice builder).</summary>
+        public void SetTrail(TrailRenderer tipTrail, VelocityMotor motor)
+        {
+            trail = tipTrail;
+            trailMotor = motor;
+        }
+
         /// <summary>Draws the blade back, ready to cut, and holds it there until <see cref="PlaySlash"/>.</summary>
         public void PlayWindup()
         {
@@ -103,6 +119,39 @@ namespace ProjectVelocity
         /// <summary>Swings the blade and shows the slash arc along <paramref name="direction"/> (world space).</summary>
         public void PlaySlash(Vector3 direction)
         {
+            PlaySlash(direction, CombatController.AttackKind.Slash);
+        }
+
+        /// <summary>
+        /// Swings the blade, with an arc shaped for the kind of attack: a flat cut on the ground, a wide vertical arc in the air,
+        /// a long thin streak for a dash strike, a big diagonal for a tether strike.
+        /// </summary>
+        public void PlaySlash(Vector3 direction, CombatController.AttackKind kind)
+        {
+            switch (kind)
+            {
+                case CombatController.AttackKind.Aerial:
+                    slashTiltNow = 72f;
+                    slashSweepNow = 140f;
+                    slashScaleNow = 1.15f;
+                    break;
+                case CombatController.AttackKind.Dash:
+                    slashTiltNow = 6f;
+                    slashSweepNow = 18f;
+                    slashScaleNow = 1.45f;
+                    break;
+                case CombatController.AttackKind.Strike:
+                    slashTiltNow = -55f;
+                    slashSweepNow = 160f;
+                    slashScaleNow = 1.35f;
+                    break;
+                default:
+                    slashTiltNow = slashTilt;
+                    slashSweepNow = slashSweep;
+                    slashScaleNow = 1f;
+                    break;
+            }
+
             poseFrom = Unwrapped(pose, swingEndPose.y);
             twistFrom = twist;
             Enter(Phase.Swing);
@@ -136,7 +185,11 @@ namespace ProjectVelocity
         void Awake()
         {
             block = new MaterialPropertyBlock();
+            slashTiltNow = slashTilt;
+            slashSweepNow = slashSweep;
             ResetPose();
+            if (trail != null)
+                trail.emitting = false;
         }
 
         void LateUpdate()
@@ -144,6 +197,15 @@ namespace ProjectVelocity
             float dt = Time.deltaTime;
             UpdateBlade(dt);
             UpdateSlash(dt);
+            if (trail != null)
+            {
+                bool swinging = phase == Phase.Windup || phase == Phase.Swing || phase == Phase.Hold ||
+                                (phase == Phase.Return && phaseTime < returnTime * 0.5f);
+                bool streaking = trailMotor != null && (trailMotor.IsBoosting || trailMotor.State == MotorState.Lunge);
+                bool emit = swinging || streaking;
+                if (trail.emitting != emit)
+                    trail.emitting = emit;
+            }
         }
 
         void UpdateBlade(float dt)
@@ -207,8 +269,8 @@ namespace ProjectVelocity
         {
             float sweep = EaseOut(u);
             Quaternion aim = Quaternion.LookRotation(slashDirection, Vector3.up);
-            slashArc.transform.rotation = aim * Quaternion.Euler(0f, Mathf.Lerp(slashSweep, -slashSweep, sweep) * 0.5f, slashTilt);
-            float size = (slashHit ? hitScale : 1f) * Mathf.Lerp(0.85f, 1.05f, sweep);
+            slashArc.transform.rotation = aim * Quaternion.Euler(0f, Mathf.Lerp(slashSweepNow, -slashSweepNow, sweep) * 0.5f, slashTiltNow);
+            float size = (slashHit ? hitScale : 1f) * slashScaleNow * Mathf.Lerp(0.85f, 1.05f, sweep);
             slashArc.transform.localScale = new Vector3(size, 1f, size);
 
             Color color = slashHit ? hitColor : missColor;

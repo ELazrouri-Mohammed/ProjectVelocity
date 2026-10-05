@@ -65,5 +65,50 @@ namespace ProjectVelocity
 
         [Tooltip("Layers that block the camera. The player itself sits on Ignore Raycast.")]
         public LayerMask collisionLayers = ~(1 << 2);
+
+        [Header("Portrait Screens")]
+        [Tooltip("On a portrait screen, the horizontal field of view (degrees) at low speed. The vertical one is widened to match, " +
+                 "so a tall narrow phone still sees enough to the sides. 0 = off (use the vertical values above).")]
+        [Range(0f, 120f)] public float portraitHorizontalFovMin;
+
+        [Tooltip("On a portrait screen, the horizontal field of view (degrees) at high speed.")]
+        [Range(0f, 120f)] public float portraitHorizontalFovMax;
+
+        [Tooltip("Widest the vertical field of view may get on a portrait screen (degrees).")]
+        [Range(20f, 140f)] public float portraitVerticalFovLimit = 110f;
+
+        [Header("Auto Follow (touch screens)")]
+        [Tooltip("How strongly the camera swings round behind your direction of travel when you aren't turning it yourself " +
+                 "(per second, at full speed). Lets one thumb steer at speed. 0 = off.")]
+        [Min(0f)] public float autoFollowStrength;
+
+        [Tooltip("Seconds after you last turned the camera before it starts following by itself.")]
+        [Min(0f)] public float autoFollowDelay = 0.5f;
+
+        [Tooltip("Speed (m/s) at which auto follow starts, and the speed at which it reaches full strength.")]
+        [Min(0f)] public float autoFollowMinSpeed = 8f;
+        [Min(0f)] public float autoFollowFullSpeed = 28f;
+
+        [Tooltip("Never swing round further than this (degrees) by itself: running at the camera doesn't spin it.")]
+        [Range(0f, 180f)] public float autoFollowMaxAngle = 140f;
+
+        [Tooltip("Pitch (degrees) the camera settles to while following.")]
+        public float autoFollowPitch = 10f;
+
+        [Tooltip("Extra downward pitch (degrees) per m/s of falling speed while falling fast, so you see where you'll land.")]
+        [Min(0f)] public float fallLookDown;
+
+        [Tooltip("Most extra downward pitch from falling (degrees).")]
+        [Min(0f)] public float maxFallLookDown = 25f;
+
+        [Header("Presentation")]
+        [Tooltip("Extra distance (m) while swinging on the tether, so the arc reads.")]
+        [Min(0f)] public float tetherDistanceBoost;
+
+        [Tooltip("Roll (degrees) while wall running, tilting the horizon with the run. 0 = off.")]
+        [Range(0f, 15f)] public float wallRoll;
+
+        [Tooltip("How quickly (s) impulses (landings, slams) settle.")]
+        [Min(0.01f)] public float impulseRecover = 0.18f;
     }
 }

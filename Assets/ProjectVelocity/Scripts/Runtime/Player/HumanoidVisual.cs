@@ -82,11 +82,27 @@ namespace ProjectVelocity
         [Tooltip("How quickly the body blends between standing, running, airborne and dashing (per second).")]
         [SerializeField, Min(0.1f)] float blendRate = 12f;
 
+        [Header("Tether, Landing")]
+        [Tooltip("Reaches the free arm up the rope while swinging. Optional.")]
+        [SerializeField] TetherController tether;
+
+        [Tooltip("How far (m) the hips drop on a hard landing.")]
+        [SerializeField, Min(0f)] float landingDrop = 0.28f;
+
+        [Tooltip("Downward speed (m/s) of a landing that gets the full compression.")]
+        [SerializeField, Min(1f)] float hardLandingSpeed = 30f;
+
+        [Tooltip("How long (s) a landing compression takes to recover.")]
+        [SerializeField, Min(0.01f)] float landingRecover = 0.28f;
+
         float phase;
         float run;
         float air;
         float dash;
+        float swing;
         float calm = 1f;
+        float compression;
+        float stretch;
         Vector3 hipsRest;
 
         public VelocityMotor Motor
@@ -99,6 +115,42 @@ namespace ProjectVelocity
         {
             get => blade;
             set => blade = value;
+        }
+
+        public TetherController Tether
+        {
+            get => tether;
+            set => tether = value;
+        }
+
+        void OnEnable()
+        {
+            if (motor != null)
+            {
+                motor.Landed += OnLanded;
+                motor.Jumped += OnJumped;
+                motor.WallJumped += OnJumped;
+            }
+        }
+
+        void OnDisable()
+        {
+            if (motor != null)
+            {
+                motor.Landed -= OnLanded;
+                motor.Jumped -= OnJumped;
+                motor.WallJumped -= OnJumped;
+            }
+        }
+
+        void OnLanded(float impactSpeed)
+        {
+            compression = Mathf.Max(compression, Mathf.Clamp(impactSpeed / hardLandingSpeed, 0.15f, 1f));
+        }
+
+        void OnJumped()
+        {
+            stretch = 1f;
         }
 
         /// <summary>Hooks up the joints (used by the movement test builder).</summary>
@@ -130,12 +182,16 @@ namespace ProjectVelocity
             bool onWall = state == MotorState.Wall;
             bool onFeet = motor.IsGrounded || onWall;
             bool dashing = state == MotorState.Boost || state == MotorState.Lunge || state == MotorState.Target;
+            bool swinging = state == MotorState.Tether;
             float speed = onWall ? motor.Velocity.magnitude : motor.Speed;
 
             float blend = 1f - Mathf.Exp(-blendRate * dt);
             run = Mathf.Lerp(run, onFeet ? Mathf.Clamp01(speed / fullRunSpeed) : 0f, blend);
             air = Mathf.Lerp(air, onFeet ? 0f : 1f, blend);
             dash = Mathf.Lerp(dash, dashing ? (motor.IsGrounded ? 0.5f : 1f) : 0f, blend);
+            swing = Mathf.Lerp(swing, swinging ? 1f : 0f, blend);
+            compression = Mathf.MoveTowards(compression, 0f, dt / landingRecover);
+            stretch = Mathf.MoveTowards(stretch, 0f, dt / 0.18f);
             float twist = blade != null ? blade.BodyTwist : 0f;
             calm = Mathf.Lerp(calm, blade != null && blade.IsSwinging ? 0f : 1f, blend);
 
@@ -151,11 +207,14 @@ namespace ProjectVelocity
             float sin = Mathf.Sin(cycle);
             float cos = Mathf.Cos(cycle);
 
-            // Legs. The left leg is forward at sin = 1; each knee bends most while its leg swings through.
-            float leftHip = wRun * -legSwing * sin + wAir * -45f + wDash * 25f;
-            float rightHip = wRun * legSwing * sin + wAir * 15f + wDash * 40f;
-            float leftKnee = wRun * (10f + kneeBend * Mathf.Max(0f, cos)) + wAir * 80f + wDash * 45f;
-            float rightKnee = wRun * (10f + kneeBend * Mathf.Max(0f, -cos)) + wAir * 45f + wDash * 70f;
+            // Legs. The left leg is forward at sin = 1; each knee bends most while its leg swings through. A landing crouches,
+            // a jump stretches, a swing trails the legs together.
+            float crouch = compression * compression;
+            float lift = stretch * (1f - air * 0.5f);
+            float leftHip = wRun * -legSwing * sin + wAir * -45f + wDash * 25f - crouch * 40f + lift * 20f + swing * -20f;
+            float rightHip = wRun * legSwing * sin + wAir * 15f + wDash * 40f - crouch * 30f + lift * 25f + swing * -5f;
+            float leftKnee = wRun * (10f + kneeBend * Mathf.Max(0f, cos)) + wAir * 80f + wDash * 45f + crouch * 75f - lift * 60f + swing * 10f;
+            float rightKnee = wRun * (10f + kneeBend * Mathf.Max(0f, -cos)) + wAir * 45f + wDash * 70f + crouch * 65f - lift * 30f + swing * 30f;
             float pointToes = (wAir + wDash) * 25f;
             SetPitch(rig.leftHip, leftHip);
             SetPitch(rig.rightHip, rightHip);
@@ -166,14 +225,22 @@ namespace ProjectVelocity
             SetPitch(rig.rightAnkle, -(rightHip + rightKnee) * wRun * 0.6f + pointToes);
 
             // Free (left) arm: swings against the left leg, out for balance in the air, trailing in a dash, and reaching
-            // forward as the sword is drawn back (pulling back as it cuts).
+            // forward as the sword is drawn back (pulling back as it cuts). On the tether it reaches straight up the rope.
             if (rig.leftShoulder != null)
             {
-                float swing = wRun * armSwing * sin + wAir * -25f + wDash * 55f - twist * 30f;
+                float armPitch = wRun * armSwing * sin + wAir * -25f + wDash * 55f - twist * 30f;
                 float spread = -10f - wAir * 40f;
-                rig.leftShoulder.localRotation = Quaternion.Euler(swing, 0f, spread);
+                Quaternion pose = Quaternion.Euler(armPitch, 0f, spread);
+                TetherAnchor anchor = motor.TetherAnchorPoint;
+                if (swing > 0.01f && anchor != null && rig.leftShoulder.parent != null)
+                {
+                    Vector3 toAnchor = rig.leftShoulder.parent.InverseTransformDirection(anchor.Position - rig.leftShoulder.position);
+                    if (toAnchor.sqrMagnitude > 1e-4f)
+                        pose = Quaternion.Slerp(pose, Quaternion.FromToRotation(Vector3.down, toAnchor.normalized), swing);
+                }
+                rig.leftShoulder.localRotation = pose;
             }
-            SetPitch(rig.leftElbow, -(15f + wRun * 75f + wAir * 45f + wDash * 15f));
+            SetPitch(rig.leftElbow, -(15f + wRun * 75f + wAir * 45f + wDash * 15f) * (1f - swing * 0.9f));
 
             // Sword arm mount: a gentle sway while running, still while the arm swings.
             SetPitch(rig.rightShoulderMount, -swordArmSway * sin * wRun * calm);
@@ -181,11 +248,11 @@ namespace ProjectVelocity
             // Torso: leans with speed and in a dash, counter-rotates against the hips while running, twists with the cut.
             if (rig.hips != null)
             {
-                rig.hips.localPosition = hipsRest + Vector3.up * (wRun * bobHeight * Mathf.Cos(2f * cycle));
+                rig.hips.localPosition = hipsRest + Vector3.up * (wRun * bobHeight * Mathf.Cos(2f * cycle) - crouch * landingDrop);
                 rig.hips.localRotation = Quaternion.Euler(0f, wRun * 8f * sin, 0f);
             }
 
-            float spinePitch = wRun * runLean + wDash * dashLean + wAir * 6f;
+            float spinePitch = wRun * runLean + wDash * dashLean + wAir * 6f + crouch * 18f - swing * 8f;
             float spineYaw = -wRun * 14f * sin + twist * slashTwist;
             if (rig.spine != null)
                 rig.spine.localRotation = Quaternion.Euler(spinePitch, spineYaw, 0f);

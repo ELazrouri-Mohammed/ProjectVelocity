@@ -4,9 +4,10 @@ using UnityEngine;
 namespace ProjectVelocity
 {
     /// <summary>
-    /// Glue between input, camera, traversal targeting, combat and motor. Each frame it reads device-independent intent,
-    /// turns the camera, updates the target selection and the attack, converts movement into camera-relative world space,
-    /// drives the motor, then lets the blade land.
+    /// Glue between input, camera, traversal targeting, tether, combat and motor. Each frame it reads device-independent intent,
+    /// turns the camera, updates the target and anchor selections and the attack, converts movement into camera-relative world
+    /// space, drives the motor, then lets the blade land. LINK (ACTION) is contextual: it hooks the tether onto the selected
+    /// anchor or launches through the selected traversal target, whichever the player more likely means.
     /// </summary>
     [DisallowMultipleComponent]
     [RequireComponent(typeof(VelocityMotor))]
@@ -26,11 +27,18 @@ namespace ProjectVelocity
         [Tooltip("Blade combat: the attack, its soft targeting and the kill reward. Optional.")]
         [SerializeField] CombatController combat;
 
-        [Tooltip("Falling below this height puts you back at the start.")]
+        [Tooltip("Tether: LINK hooks onto anchors. Optional.")]
+        [SerializeField] TetherController tether;
+
+        [Tooltip("Shield and death. Optional: without it, failing puts you straight back at the start.")]
+        [SerializeField] PlayerHealth health;
+
+        [Tooltip("Falling below this height puts you back at the start (a Slice Director in the scene overrides it per checkpoint).")]
         [SerializeField] float killHeight = -30f;
 
         Vector3 spawnPosition;
         float spawnYaw;
+        bool frozen;
 
         /// <summary>Raised after <see cref="Respawn"/> has put the player back at the start (R / RESET, or a fall).</summary>
         public event Action Respawned;
@@ -65,6 +73,25 @@ namespace ProjectVelocity
             set => combat = value;
         }
 
+        public TetherController Tether
+        {
+            get => tether;
+            set => tether = value;
+        }
+
+        public PlayerHealth Health
+        {
+            get => health;
+            set => health = value;
+        }
+
+        /// <summary>While frozen (the death beat, the end screen), input is read but ignored and the motor doesn't run.</summary>
+        public bool Frozen
+        {
+            get => frozen;
+            set => frozen = value;
+        }
+
         void Awake()
         {
             if (motor == null)
@@ -77,6 +104,10 @@ namespace ProjectVelocity
                 targeting = GetComponent<TraversalTargeting>();
             if (combat == null)
                 combat = GetComponent<CombatController>();
+            if (tether == null)
+                tether = GetComponent<TetherController>();
+            if (health == null)
+                health = GetComponent<PlayerHealth>();
 
             spawnPosition = transform.position;
             spawnYaw = transform.eulerAngles.y;
@@ -85,6 +116,8 @@ namespace ProjectVelocity
         void Update()
         {
             PlayerIntent intent = inputSource != null ? inputSource.ReadIntent() : default;
+            if (frozen)
+                return;
             float dt = Time.deltaTime;
 
             // Turn the camera first so movement uses this frame's facing.
@@ -96,8 +129,19 @@ namespace ProjectVelocity
             forward = forward.sqrMagnitude > 1e-4f ? forward.normalized : Vector3.forward;
             Vector3 right = new Vector3(forward.z, 0f, -forward.x);
 
-            // Pick the most likely target before moving; the button only ever launches through that one.
-            TraversalTarget activate = targeting != null ? targeting.Tick(intent.TargetPressed) : null;
+            // Pick the most likely target and anchor before moving; LINK only ever uses one of those two.
+            TraversalTarget selectedTarget = null;
+            float targetScore = 1f;
+            if (targeting != null)
+            {
+                targeting.Tick(false);
+                selectedTarget = targeting.Selected;
+                targetScore = targeting.SelectedAngle / Mathf.Max(1f, motor.Settings.targetSelectionAngle);
+            }
+            LinkCommand link = tether != null
+                ? tether.Tick(intent.TargetPressed, intent.TargetHeld, selectedTarget, targetScore)
+                : new LinkCommand { UseTarget = intent.TargetPressed && selectedTarget != null };
+            TraversalTarget activate = link.UseTarget && selectedTarget != null && motor.CanActivateTarget ? selectedTarget : null;
 
             // The attack picks its enemy the same way; reaching for one beyond the blade becomes a lunge for the motor.
             MotorLunge lunge = combat != null ? combat.Tick(intent.AttackPressed, forward, dt) : default;
@@ -111,24 +155,48 @@ namespace ProjectVelocity
                 BoostPressed = intent.BoostPressed,
                 ActivateTarget = activate,
                 Lunge = lunge,
+                Tether = link.Attach,
+                ReleaseTether = link.Release,
             };
             motor.Tick(command, dt);
             if (combat != null)
                 combat.AfterMove();
 
-            if (intent.RespawnPressed || transform.position.y < killHeight)
+            float limit = SliceDirector.Current != null ? SliceDirector.Current.KillHeight : killHeight;
+            if (intent.RespawnPressed)
+                Respawn();
+            else if (transform.position.y < limit)
+                Fail("fell");
+        }
+
+        /// <summary>
+        /// The player failed (fell, was crushed or hit by a hazard): dies through <see cref="PlayerHealth"/> when there is one
+        /// (a short death beat, then the checkpoint), otherwise straight back to the start.
+        /// </summary>
+        public void Fail(string reason)
+        {
+            if (health != null && health.isActiveAndEnabled)
+                health.Kill(reason);
+            else
                 Respawn();
         }
 
         /// <summary>
-        /// Back to the start, with motion, combat and every reality stage reset: the level spawn, or the start of the
-        /// <see cref="RespawnZone"/> you were in (so failing a section restarts that section).
+        /// Back to the start, with motion, combat and the reality stages reset: the last checkpoint when a
+        /// <see cref="SliceDirector"/> runs the level, else the start of the <see cref="RespawnZone"/> you were in (so failing a
+        /// section restarts that section), else the level spawn.
         /// </summary>
         public void Respawn()
         {
+            frozen = false;
             Vector3 position = spawnPosition;
             float yaw = spawnYaw;
-            if (RespawnZone.TryGetRestart(transform.position, out Vector3 restart, out float restartYaw))
+            if (SliceDirector.Current != null && SliceDirector.Current.TryGetRestart(out Vector3 checkpoint, out float checkpointYaw))
+            {
+                position = checkpoint;
+                yaw = checkpointYaw;
+            }
+            else if (RespawnZone.TryGetRestart(transform.position, out Vector3 restart, out float restartYaw))
             {
                 position = restart;
                 yaw = restartYaw;
@@ -139,6 +207,8 @@ namespace ProjectVelocity
                 cameraRig.SnapBehindTarget(yaw);
             if (combat != null)
                 combat.ResetCombat();
+            if (tether != null)
+                tether.ResetTether();
             Respawned?.Invoke();
         }
     }

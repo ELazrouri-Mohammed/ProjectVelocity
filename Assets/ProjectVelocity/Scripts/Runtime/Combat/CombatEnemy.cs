@@ -1,8 +1,50 @@
+using System;
 using System.Collections.Generic;
 using UnityEngine;
+using Random = UnityEngine.Random;
 
 namespace ProjectVelocity
 {
+    /// <summary>What kind of attack is landing on an enemy.</summary>
+    public enum HitKind
+    {
+        Blade,
+        /// <summary>A tether strike arriving at the enemy.</summary>
+        Strike,
+        /// <summary>The ranged pulse.</summary>
+        Pulse,
+    }
+
+    /// <summary>What a hit did.</summary>
+    public enum HitResult
+    {
+        Ignored,
+        Killed,
+        /// <summary>Armour turned it away (see <see cref="IHitFilter"/>).</summary>
+        Deflected,
+    }
+
+    /// <summary>One attack landing on an enemy.</summary>
+    public struct HitInfo
+    {
+        /// <summary>Where the attack comes from (the player's body centre, or the pulse).</summary>
+        public Vector3 Origin;
+        /// <summary>Direction the attack travels, world space, normalised.</summary>
+        public Vector3 Direction;
+        /// <summary>The attacker's velocity (sprays debris the way you cut through).</summary>
+        public Vector3 AttackerVelocity;
+        public HitKind Kind;
+    }
+
+    /// <summary>
+    /// Optional armour on an enemy (a component on the same object): decides whether a hit kills or is deflected, e.g. a heavy
+    /// whose shield only lets hits from behind or above through.
+    /// </summary>
+    public interface IHitFilter
+    {
+        HitResult Filter(in HitInfo hit);
+    }
+
     /// <summary>
     /// Sentinel: the one placeholder enemy. It hovers in place, can be selected and lunged at, and one hit kills it with a
     /// cheap burst (flash, collapse, a few shards). It never attacks and has no collider: its hurtbox is a sphere that
@@ -34,7 +76,17 @@ namespace ProjectVelocity
         [Tooltip("Seconds after dying before it comes back. 0 = stays down until the player respawns (R / RESET).")]
         [SerializeField, Min(0f)] float respawnDelay = 4f;
 
+        [Tooltip("Comes back whenever the player respawns. Off when a Slice Director decides which enemies come back (only those " +
+                 "past the checkpoint).")]
+        [SerializeField] bool reviveWithPlayer = true;
+
+        [Tooltip("Light enemies can be struck with the tether and are killed by the pulse; heavy ones aren't.")]
+        [SerializeField] bool light = true;
+
         [Header("Idle Motion (visual only: the hurtbox stays put)")]
+        [Tooltip("Hover, bob and spin the visual. Off for enemies whose own behaviour moves them.")]
+        [SerializeField] bool animateIdle = true;
+
         [Tooltip("Hover bob height (m).")]
         [SerializeField, Min(0f)] float hoverHeight = 0.15f;
 
@@ -102,6 +154,14 @@ namespace ProjectVelocity
         Vector3 shardBaseScale = Vector3.one;
         // Seconds since the shards burst out, or negative when none are flying.
         float shardTime = -1f;
+        IHitFilter filter;
+
+        /// <summary>Raised when it dies, with the attacker's velocity.</summary>
+        public event Action<CombatEnemy, Vector3> Died;
+        /// <summary>Raised when it comes back.</summary>
+        public event Action<CombatEnemy> Revived;
+        /// <summary>Raised when armour turns a hit away.</summary>
+        public event Action<CombatEnemy, HitInfo> HitDeflected;
 
         /// <summary>Every enabled enemy, alive or not. Small enough to scan each frame.</summary>
         public static IReadOnlyList<CombatEnemy> Active => active;
@@ -125,6 +185,24 @@ namespace ProjectVelocity
 
         public bool IsSelected => selected;
 
+        public bool ReviveWithPlayer
+        {
+            get => reviveWithPlayer;
+            set => reviveWithPlayer = value;
+        }
+
+        public bool IsLight
+        {
+            get => light;
+            set => light = value;
+        }
+
+        public bool AnimateIdle
+        {
+            get => animateIdle;
+            set => animateIdle = value;
+        }
+
         // Survives play mode without a domain reload.
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
         static void ResetRegistry()
@@ -137,7 +215,7 @@ namespace ProjectVelocity
         {
             for (int i = 0; i < active.Count; i++)
             {
-                if (active[i] != null && active[i].state != State.Alive)
+                if (active[i] != null && active[i].reviveWithPlayer && active[i].state != State.Alive)
                     active[i].Revive();
             }
         }
@@ -159,6 +237,21 @@ namespace ProjectVelocity
             selected = value;
         }
 
+        /// <summary>
+        /// An attack lands: armour (an <see cref="IHitFilter"/> on this object) may turn it away; otherwise one hit kills.
+        /// </summary>
+        public HitResult TryHit(in HitInfo hit)
+        {
+            if (!IsAlive)
+                return HitResult.Ignored;
+            if (filter != null && filter.Filter(hit) == HitResult.Deflected)
+            {
+                HitDeflected?.Invoke(this, hit);
+                return HitResult.Deflected;
+            }
+            return Kill(hit.AttackerVelocity) ? HitResult.Killed : HitResult.Ignored;
+        }
+
         /// <summary>One hit kills. <paramref name="attackerVelocity"/> sprays the shards. False if it was already down.</summary>
         public bool Kill(Vector3 attackerVelocity)
         {
@@ -170,6 +263,7 @@ namespace ProjectVelocity
             selected = false;
             SetMaterial(hitMaterial);
             BurstShards(attackerVelocity);
+            Died?.Invoke(this, attackerVelocity);
             return true;
         }
 
@@ -181,10 +275,22 @@ namespace ProjectVelocity
             pulse = 1f;
             if (visualRoot != null)
                 visualRoot.gameObject.SetActive(true);
+            Revived?.Invoke(this);
+        }
+
+        /// <summary>Puts it down at once, without a death (used to keep enemies behind a checkpoint out of the way).</summary>
+        public void Dismiss()
+        {
+            state = State.Dead;
+            stateTime = 0f;
+            selected = false;
+            if (visualRoot != null)
+                visualRoot.gameObject.SetActive(false);
         }
 
         void Awake()
         {
+            filter = GetComponent<IHitFilter>();
             if (visualRoot != null)
             {
                 visualBasePosition = visualRoot.localPosition;
@@ -249,6 +355,15 @@ namespace ProjectVelocity
             SetMaterial(selected ? selectedMaterial : idleMaterial);
             if (visualRoot == null)
                 return;
+            if (!animateIdle)
+            {
+                // Its own behaviour moves it: only the grow-in after a revive and the selection pulse.
+                grow = Mathf.MoveTowards(grow, 1f, dt / reviveTime);
+                float pulseGoal = selected ? selectedScale * (1f + pulseAmount * Mathf.Sin(Time.time * pulseRate * 2f * Mathf.PI)) : 1f;
+                pulse = Mathf.Lerp(pulse, pulseGoal, 1f - Mathf.Exp(-20f * dt));
+                visualRoot.localScale = visualBaseScale * (pulse * grow * (2f - grow));
+                return;
+            }
 
             grow = Mathf.MoveTowards(grow, 1f, dt / reviveTime);
             float goal = selected ? selectedScale * (1f + pulseAmount * Mathf.Sin(Time.time * pulseRate * 2f * Mathf.PI)) : 1f;

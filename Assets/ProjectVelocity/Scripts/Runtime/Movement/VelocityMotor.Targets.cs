@@ -52,6 +52,7 @@ namespace ProjectVelocity
             if (wallRunning)
                 StopWallRun(t, WallExit.Targeted);
             EndLunge(); // the target takes over from a lunge
+            EndTether(TetherExit.Lost); // and from a swing
 
             // Respect the speed you arrive with: a faster entry is kept (per Momentum Keep), a slower one builds up.
             float entrySpeed = (planarVelocity + Vector3.up * verticalSpeed).magnitude;

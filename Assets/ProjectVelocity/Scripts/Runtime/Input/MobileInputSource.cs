@@ -8,8 +8,9 @@ using TouchPhase = UnityEngine.InputSystem.TouchPhase;
 namespace ProjectVelocity
 {
     /// <summary>
-    /// Two-thumb landscape touch controls, producing the same <see cref="PlayerIntent"/> as the desktop input:
-    /// a movement stick for the left thumb, camera drag on the right side, and JUMP / BOOST / ACTION / ATTACK around the right thumb.
+    /// Two-thumb touch controls, producing the same <see cref="PlayerIntent"/> as the desktop input: a movement stick for the
+    /// left thumb, camera drag everywhere else, and JUMP / BOOST / ACTION (LINK) / ATTACK around the right thumb. Landscape and
+    /// portrait screens each get their own layout (Touch Controls Tuning); in portrait the whole upper screen is the look pad.
     /// Every touch belongs to whatever it started on until it lifts, so thumbs never steal each other's controls
     /// and any combination (move + look + button) works at once.
     /// </summary>
@@ -43,6 +44,7 @@ namespace ProjectVelocity
         Vector2 stickHome;
         float stickRadius = 1f;
         float movementZoneRight;
+        float movementZoneTop;
         readonly Vector2[] buttonCentres = new Vector2[ButtonCount];
         readonly float[] buttonRadii = new float[ButtonCount];
         readonly bool[] buttonVisible = new bool[ButtonCount];
@@ -195,6 +197,7 @@ namespace ProjectVelocity
                 JumpHeld = buttonTouches[(int)TouchButton.Jump] != NoTouch,
                 BoostPressed = WasPressed(TouchButton.Boost),
                 TargetPressed = WasPressed(TouchButton.Action),
+                TargetHeld = buttonTouches[(int)TouchButton.Action] != NoTouch,
                 AttackPressed = WasPressed(TouchButton.Attack),
                 RespawnPressed = WasPressed(TouchButton.Reset),
             };
@@ -225,7 +228,7 @@ namespace ProjectVelocity
                 return;
             }
 
-            if (lookTouch == NoTouch && position.x >= movementZoneRight)
+            if (lookTouch == NoTouch && (position.x >= movementZoneRight || position.y >= movementZoneTop))
             {
                 lookTouch = id;
                 lookLastPosition = position;
@@ -235,7 +238,7 @@ namespace ProjectVelocity
         bool InMovementZone(Vector2 position, TouchControlsTuning t)
         {
             if (t.stickMode == TouchControlsTuning.StickMode.Floating)
-                return position.x < movementZoneRight;
+                return position.x < movementZoneRight && position.y < movementZoneTop;
             return (position - stickHome).sqrMagnitude <= Sq(stickRadius * FixedStickGrabRadius);
         }
 
@@ -371,16 +374,31 @@ namespace ProjectVelocity
             float top = safe.yMax;
 
             float unit = shortSide / TouchControlsTuning.ReferenceShortSide * t.controlScale;
+            bool portrait = height > width;
 
-            stickHome = new Vector2(left + t.stickPosition.x * unit, bottom + t.stickPosition.y * unit);
+            Vector2 stickAt = portrait ? t.portraitStickPosition : t.stickPosition;
+            stickHome = new Vector2(left + stickAt.x * unit, bottom + stickAt.y * unit);
             stickRadius = Mathf.Max(1f, t.stickRadius * unit);
-            movementZoneRight = left + (right - left) * t.movementZoneWidth;
+            movementZoneRight = left + (right - left) * (portrait ? t.portraitMovementZoneWidth : t.movementZoneWidth);
+            movementZoneTop = portrait ? bottom + (top - bottom) * t.portraitMovementZoneHeight : float.MaxValue;
 
-            SetButton(TouchButton.Jump, new Vector2(right - t.jumpPosition.x * unit, bottom + t.jumpPosition.y * unit), t.jumpRadius * unit, true);
-            SetButton(TouchButton.Boost, new Vector2(right - t.boostPosition.x * unit, bottom + t.boostPosition.y * unit), t.boostRadius * unit, true);
-            SetButton(TouchButton.Action, new Vector2(right - t.actionPosition.x * unit, bottom + t.actionPosition.y * unit), t.actionRadius * unit, true);
-            SetButton(TouchButton.Attack, new Vector2(right - t.attackPosition.x * unit, bottom + t.attackPosition.y * unit), t.attackRadius * unit, true);
-            SetButton(TouchButton.Reset, new Vector2(right - t.resetPosition.x * unit, top - t.resetPosition.y * unit), t.resetRadius * unit, t.showResetButton);
+            if (portrait)
+            {
+                SetButton(TouchButton.Jump, BottomRight(right, bottom, t.portraitJumpPosition, unit), t.portraitJumpRadius * unit, true);
+                SetButton(TouchButton.Boost, BottomRight(right, bottom, t.portraitBoostPosition, unit), t.portraitBoostRadius * unit, true);
+                SetButton(TouchButton.Action, BottomRight(right, bottom, t.portraitActionPosition, unit), t.portraitActionRadius * unit, true);
+                SetButton(TouchButton.Attack, BottomRight(right, bottom, t.portraitAttackPosition, unit), t.portraitAttackRadius * unit, true);
+                SetButton(TouchButton.Reset, new Vector2(right - t.portraitResetPosition.x * unit, top - t.portraitResetPosition.y * unit),
+                    t.resetRadius * unit, t.showResetButton);
+            }
+            else
+            {
+                SetButton(TouchButton.Jump, BottomRight(right, bottom, t.jumpPosition, unit), t.jumpRadius * unit, true);
+                SetButton(TouchButton.Boost, BottomRight(right, bottom, t.boostPosition, unit), t.boostRadius * unit, true);
+                SetButton(TouchButton.Action, BottomRight(right, bottom, t.actionPosition, unit), t.actionRadius * unit, true);
+                SetButton(TouchButton.Attack, BottomRight(right, bottom, t.attackPosition, unit), t.attackRadius * unit, true);
+                SetButton(TouchButton.Reset, new Vector2(right - t.resetPosition.x * unit, top - t.resetPosition.y * unit), t.resetRadius * unit, t.showResetButton);
+            }
 
             if (view != null)
             {
@@ -393,6 +411,11 @@ namespace ProjectVelocity
             // A held stick is redrawn by its touch this frame; an idle one goes to its new rest position.
             if (stickTouch == NoTouch)
                 ReleaseStick();
+        }
+
+        static Vector2 BottomRight(float right, float bottom, Vector2 offset, float unit)
+        {
+            return new Vector2(right - offset.x * unit, bottom + offset.y * unit);
         }
 
         void SetButton(TouchButton button, Vector2 centre, float radius, bool visible)

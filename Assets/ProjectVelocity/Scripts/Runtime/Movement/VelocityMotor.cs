@@ -7,7 +7,8 @@ namespace ProjectVelocity
     /// High-speed kinematic character motor built on CharacterController.
     /// It knows nothing about devices or cameras: something calls <see cref="Tick"/> once per frame
     /// with a world-space <see cref="MotorCommand"/>. Wall traversal lives in VelocityMotor.WallRun.cs,
-    /// traversal-target propulsion in VelocityMotor.Targets.cs, the combat lunge in VelocityMotor.Lunge.cs.
+    /// traversal-target propulsion in VelocityMotor.Targets.cs, the combat lunge in VelocityMotor.Lunge.cs, the tether in
+    /// VelocityMotor.Tether.cs.
     /// </summary>
     [DisallowMultipleComponent]
     [RequireComponent(typeof(CharacterController))]
@@ -48,9 +49,14 @@ namespace ProjectVelocity
         public Vector3 Velocity => lastMoveVelocity;
         public float BoostCooldownRemaining => boostCooldownTimer;
         public int AirBoostsRemaining => Mathf.Max(0, Settings.maxAirBoosts - airBoostsUsed);
+        /// <summary>The collider you're standing on, or null in the air. Moving architecture uses it to carry you.</summary>
+        public Collider GroundCollider => grounded ? groundCollider : null;
+        /// <summary>Whether a boost would start right now.</summary>
+        public bool CanBoost => boostCooldownTimer <= 0f && (grounded || airBoostsUsed < Settings.maxAirBoosts);
 
         public MotorState State =>
             targetPulling ? MotorState.Target
+            : tethering ? MotorState.Tether
             : lunging ? MotorState.Lunge
             : wallRunning ? MotorState.Wall
             : boostTimer > 0f ? MotorState.Boost
@@ -66,6 +72,7 @@ namespace ProjectVelocity
 
         bool grounded;
         Vector3 groundNormal = Vector3.up;
+        Collider groundCollider;
         float walkableNormalY;
 
         float coyoteTimer;
@@ -120,6 +127,7 @@ namespace ProjectVelocity
             jumpBufferTimer = command.JumpPressed ? t.jumpBufferTime : jumpBufferTimer - dt;
             TickWallTimers(t, dt);
             TickTargetTimers(dt);
+            TickTetherTimers(dt);
 
             Vector3 wishDir = new Vector3(command.MoveDirection.x, 0f, command.MoveDirection.z);
             float wishMagnitude = wishDir.magnitude;
@@ -134,9 +142,14 @@ namespace ProjectVelocity
                 wishDir = Vector3.zero;
             }
 
-            // A lunge first, so a boost or a target pressed on the same frame takes over from it.
+            // A lunge first, so a boost or a target pressed on the same frame takes over from it. Letting go of the tether
+            // comes before a new one attaches.
+            if (command.ReleaseTether)
+                EndTether(TetherExit.Released);
             if (command.Lunge.IsRequested)
                 TryStartLunge(t, command.Lunge);
+            if (command.Tether.IsRequested)
+                TryStartTether(t, command.Tether, command.FallbackDirection);
             if (command.BoostPressed)
                 TryStartBoost(t, wishDir, command.FallbackDirection);
             if (command.ActivateTarget != null)
@@ -146,6 +159,8 @@ namespace ProjectVelocity
             // and so does a lunge started in the air.
             if (targetPulling)
                 UpdateTargetPull(t, dt);
+            else if (tethering)
+                UpdateTether(wishDir, wishAmount, dt);
             else if (lunging)
                 UpdateLunge(dt);
             else if (wallRunning && KeepWallRun(t, wishDir, wishAmount))
@@ -178,6 +193,11 @@ namespace ProjectVelocity
                 boostHoldsAltitude = false; // a boost still running keeps its speed, but gravity applies to the jump
                 Jumped?.Invoke();
             }
+            else if (jumpBufferTimer > 0f && tethering)
+            {
+                TetherJump();
+                jumpedThisFrame = true;
+            }
             else if (jumpBufferTimer > 0f && CanWallJump)
             {
                 WallJump(t, wishDir, wishAmount);
@@ -185,7 +205,7 @@ namespace ProjectVelocity
             }
 
             // Gravity (the wall run applies its own while attached; a target pull and an air lunge have none until they end).
-            if (!grounded && !wallRunning && !targetPulling && !LungeHoldsAltitude)
+            if (!grounded && !wallRunning && !targetPulling && !tethering && !LungeHoldsAltitude)
             {
                 bool gravityPaused = boostTimer > 0f && boostHoldsAltitude;
                 if (!gravityPaused)
@@ -217,15 +237,46 @@ namespace ProjectVelocity
 
             BeginWallContacts();
             Vector3 positionBeforeMove = transform.position;
-            controller.Move(moveVelocity * dt + WallSnapOffset(dt));
+            Vector3 intended = moveVelocity * dt + tetherCorrection;
+            controller.Move(intended + WallSnapOffset(dt));
             lastMoveVelocity = moveVelocity;
-            CheckTargetPullProgress(t, moveVelocity * dt, transform.position - positionBeforeMove);
-            CheckLungeProgress(moveVelocity * dt, transform.position - positionBeforeMove);
+            Vector3 moved = transform.position - positionBeforeMove;
+            CheckTargetPullProgress(t, moveVelocity * dt, moved);
+            CheckLungeProgress(moveVelocity * dt, moved);
+            CheckTetherProgress(intended, moved);
 
             // While a target pulls you in, you neither land nor catch walls; once it lets go, both work as usual.
-            // A lunge can land, but doesn't catch walls until it's over.
+            // A lunge can land, but doesn't catch walls until it's over. A swing that touches down ends there.
             UpdateGrounding(t, dt, jumpedThisFrame || targetPulling, moveVelocity);
-            UpdateWallState(t, wishDir, wishAmount, jumpedThisFrame || targetPulling || lunging);
+            if (tethering && grounded)
+                EndTether(TetherExit.Landed);
+            UpdateWallState(t, wishDir, wishAmount, jumpedThisFrame || targetPulling || lunging || tethering);
+        }
+
+        /// <summary>
+        /// Knocked away (an enemy hit, a blade deflected off armour): the velocity becomes <paramref name="velocity"/>, whatever
+        /// you were doing. Anything upward lifts you off the ground.
+        /// </summary>
+        public void Knock(Vector3 velocity)
+        {
+            MovementTuning t = Settings;
+            EndLunge();
+            if (targetPulling)
+                EndTargetPull(t, false);
+            EndTether(TetherExit.Lost);
+            if (wallRunning)
+                StopWallRun(t, WallExit.Lost);
+            boostTimer = 0f;
+            boostHoldsAltitude = false;
+            jumpRising = false;
+            planarVelocity = new Vector3(velocity.x, 0f, velocity.z);
+            verticalSpeed = velocity.y;
+            if (velocity.y > 0f)
+            {
+                grounded = false;
+                groundNormal = Vector3.up;
+                coyoteTimer = 0f;
+            }
         }
 
         /// <summary>Instantly moves the character and clears all motion.</summary>
@@ -248,7 +299,9 @@ namespace ProjectVelocity
             airBoostsUsed = 0;
             ResetWallState();
             ResetTargetState();
+            ResetTetherState();
             EndLunge();
+            groundCollider = null;
         }
 
         /// <summary>
@@ -298,9 +351,10 @@ namespace ProjectVelocity
             if (!grounded && airBoostsUsed >= t.maxAirBoosts)
                 return;
 
-            // Boosting during a target pull or a lunge breaks out of it in the boost direction.
+            // Boosting during a target pull, a swing or a lunge breaks out of it in the boost direction.
             if (targetPulling)
                 EndTargetPull(t, false);
+            EndTether(TetherExit.Boosted);
             EndLunge();
 
             if (wallRunning)
@@ -365,8 +419,9 @@ namespace ProjectVelocity
             if (wasGrounded)
                 allowedGap += Mathf.Clamp(planarVelocity.magnitude * dt * SnapSlopeTangent, GroundContactTolerance, t.groundSnapDistance);
 
-            if (ProbeGround(t, allowedGap, out float gap, out Vector3 normal) && normal.y >= walkableNormalY)
+            if (ProbeGround(t, allowedGap, out float gap, out Vector3 normal, out Collider surface) && normal.y >= walkableNormalY)
             {
+                groundCollider = surface;
                 if (wasGrounded && gap > controller.skinWidth + 0.01f)
                     controller.Move(Vector3.down * gap);
 
@@ -395,7 +450,7 @@ namespace ProjectVelocity
             }
         }
 
-        bool ProbeGround(MovementTuning t, float maxGap, out float gap, out Vector3 normal)
+        bool ProbeGround(MovementTuning t, float maxGap, out float gap, out Vector3 normal, out Collider hitCollider)
         {
             float radius = controller.radius;
             Vector3 center = transform.position + controller.center;
@@ -412,6 +467,7 @@ namespace ProjectVelocity
             {
                 gap = hit.distance - startOffset;
                 normal = hit.normal;
+                hitCollider = hit.collider;
 
                 // On platform edges the sphere reports a rounded edge normal; use the real surface normal instead.
                 if (normal.y < walkableNormalY &&
@@ -427,6 +483,7 @@ namespace ProjectVelocity
 
             gap = float.MaxValue;
             normal = Vector3.up;
+            hitCollider = null;
             return false;
         }
 

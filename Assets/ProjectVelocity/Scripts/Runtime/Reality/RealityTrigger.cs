@@ -34,6 +34,10 @@ namespace ProjectVelocity
         [Tooltip("Optional line on the floor showing where the volume is. Laid on the floor under it when play starts and whenever Lead Distance changes.")]
         [SerializeField] Transform marker;
 
+        [Tooltip("Snap the stage back and re-arm whenever the player respawns. Off when a Slice Director decides which stages " +
+                 "reset (only those past the checkpoint).")]
+        [SerializeField] bool rearmOnRespawn = true;
+
         bool armed = true;
         bool hasLastPosition;
         Vector3 lastPosition;
@@ -58,11 +62,11 @@ namespace ProjectVelocity
                     return;
                 bool listening = Application.isPlaying && isActiveAndEnabled;
                 if (listening && player != null)
-                    player.Respawned -= Rearm;
+                    player.Respawned -= OnPlayerRespawned;
                 player = value;
                 hasLastPosition = false;
                 if (listening && player != null)
-                    player.Respawned += Rearm;
+                    player.Respawned += OnPlayerRespawned;
             }
         }
 
@@ -76,6 +80,12 @@ namespace ProjectVelocity
         {
             get => volumeSize;
             set => volumeSize = Vector3.Max(value, Vector3.zero);
+        }
+
+        public bool RearmOnRespawn
+        {
+            get => rearmOnRespawn;
+            set => rearmOnRespawn = value;
         }
 
         public Transform Marker
@@ -102,6 +112,19 @@ namespace ProjectVelocity
                 sequence.ResetToStart();
         }
 
+        /// <summary>Won't fire again until re-armed (its stage is already done).</summary>
+        public void Disarm()
+        {
+            armed = false;
+            hasLastPosition = false;
+        }
+
+        void OnPlayerRespawned()
+        {
+            if (rearmOnRespawn)
+                Rearm();
+        }
+
         void Awake()
         {
             if (player == null)
@@ -112,13 +135,13 @@ namespace ProjectVelocity
         {
             hasLastPosition = false;
             if (player != null)
-                player.Respawned += Rearm;
+                player.Respawned += OnPlayerRespawned;
         }
 
         void OnDisable()
         {
             if (player != null)
-                player.Respawned -= Rearm;
+                player.Respawned -= OnPlayerRespawned;
         }
 
         void Update()

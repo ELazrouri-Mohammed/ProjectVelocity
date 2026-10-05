@@ -25,6 +25,7 @@ namespace ProjectVelocity
         CombatEnemy selected;
         float selectedDistance;
         float selectedAngle;
+        CombatEnemy pulseSelected;
 
         public VelocityMotor Motor
         {
@@ -47,6 +48,12 @@ namespace ProjectVelocity
         /// <summary>Blended camera/travel angle to the selected enemy (degrees). Debug readout.</summary>
         public float SelectedAngle => selectedAngle;
 
+        /// <summary>
+        /// The enemy (or switch) the pulse would fire at: beyond lunge range, up to Pulse Range, close to the middle of your
+        /// intent. Null while an enemy is selected for the blade. Not highlighted on the enemy itself (the HUD marks it).
+        /// </summary>
+        public CombatEnemy PulseSelected => pulseSelected;
+
         void Awake()
         {
             if (motor == null)
@@ -58,13 +65,16 @@ namespace ProjectVelocity
         void OnDisable()
         {
             Select(null, 0f, 0f);
+            pulseSelected = null;
         }
 
         /// <summary>
-        /// Updates the selection. While a lunge homes in on <paramref name="locked"/>, that enemy stays the selection.
+        /// Updates the selection. While a lunge homes in on <paramref name="locked"/>, that enemy stays the selection. With
+        /// <paramref name="findPulseTarget"/>, also picks the pulse target when no enemy is selected for the blade.
         /// </summary>
-        public void Tick(CombatTuning t, CombatEnemy locked)
+        public void Tick(CombatTuning t, CombatEnemy locked, bool findPulseTarget = false)
         {
+            pulseSelected = null;
             if (motor == null || t == null)
             {
                 Select(null, 0f, 0f);
@@ -146,8 +156,8 @@ namespace ProjectVelocity
                 if (score >= bestScore)
                     continue;
 
-                // Reachable: nothing solid in between.
-                if (Physics.Linecast(eye, centre, t.blockingLayers, QueryTriggerInteraction.Ignore))
+                // Reachable: nothing solid in between (its own body doesn't count).
+                if (Blocked(eye, centre, enemy, t.blockingLayers))
                     continue;
 
                 best = enemy;
@@ -157,6 +167,56 @@ namespace ProjectVelocity
             }
 
             Select(best, bestDistance, bestAngle);
+            if (best == null && findPulseTarget)
+                pulseSelected = FindPulseTarget(t, eye, viewWeight, travelWeight, travel);
+        }
+
+        CombatEnemy FindPulseTarget(CombatTuning t, Vector3 eye, float viewWeight, float travelWeight, Vector3 travel)
+        {
+            CombatEnemy best = null;
+            float bestScore = float.MaxValue;
+            float minRange = t.attackRange * 0.5f;
+            IReadOnlyList<CombatEnemy> enemies = CombatEnemy.Active;
+            for (int i = 0; i < enemies.Count; i++)
+            {
+                CombatEnemy enemy = enemies[i];
+                if (enemy == null || !enemy.IsAlive)
+                    continue;
+                Vector3 centre = enemy.HurtboxCenter;
+                Vector3 toEnemy = centre - eye;
+                float sqrDistance = toEnemy.sqrMagnitude;
+                if (sqrDistance > t.pulseRange * t.pulseRange || sqrDistance < minRange * minRange)
+                    continue;
+
+                float angle = 0f;
+                if (viewWeight > 0f)
+                    angle += viewWeight * Vector3.Angle(viewpoint.forward, centre - viewpoint.position);
+                if (travelWeight > 0f)
+                {
+                    var flat = new Vector3(toEnemy.x, 0f, toEnemy.z);
+                    angle += travelWeight * (flat.sqrMagnitude > MinFlatDistance * MinFlatDistance ? Vector3.Angle(travel, flat) : 0f);
+                }
+                angle /= viewWeight + travelWeight;
+                if (angle > t.pulseSelectionAngle)
+                    continue;
+
+                float score = angle / t.pulseSelectionAngle + Mathf.Sqrt(sqrDistance) / t.pulseRange * 0.3f;
+                if (score >= bestScore)
+                    continue;
+                if (Blocked(eye, centre, enemy, t.blockingLayers))
+                    continue;
+                best = enemy;
+                bestScore = score;
+            }
+            return best;
+        }
+
+        /// <summary>Whether something other than the enemy's own colliders (a heavy's armour) stands between the eye and it.</summary>
+        static bool Blocked(Vector3 eye, Vector3 centre, CombatEnemy enemy, LayerMask layers)
+        {
+            if (!Physics.Linecast(eye, centre, out RaycastHit hit, layers, QueryTriggerInteraction.Ignore))
+                return false;
+            return !hit.collider.transform.IsChildOf(enemy.transform);
         }
 
         void Select(CombatEnemy enemy, float distance, float angle)

@@ -31,6 +31,9 @@ namespace ProjectVelocity
         /// <summary>Activate the selected traversal target. E on desktop, the ACTION button on touch screens.</summary>
         public bool TargetPressed;
 
+        /// <summary>The ACTION / LINK button is held (keeps a tether attached; letting go releases it).</summary>
+        public bool TargetHeld;
+
         /// <summary>Swing the blade. Left mouse or F on desktop, the ATTACK button on touch screens.</summary>
         public bool AttackPressed;
 

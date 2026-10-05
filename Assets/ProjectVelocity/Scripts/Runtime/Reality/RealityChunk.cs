@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 
 namespace ProjectVelocity
@@ -12,10 +13,11 @@ namespace ProjectVelocity
     /// first (e.g. swing up in one stage, fold away again in a later one).
     /// Its colliders are plain box colliders moved by the transform: no Rigidbody, so physics never pushes anything with them.
     /// When it moves into the player, <see cref="RealityTransformSequence"/> shoves the player out of it, resets them if
-    /// that leaves them pinned (crushed), and resets them at once if this piece is <see cref="IsLethal"/> (a hazard).
+    /// that leaves them pinned (crushed), and resets them at once if this piece is <see cref="IsLethal"/> (a hazard). A player
+    /// standing on it is carried along (see <see cref="KinematicResolver"/>).
     /// </summary>
     [DisallowMultipleComponent]
-    public sealed class RealityChunk : MonoBehaviour
+    public sealed class RealityChunk : MonoBehaviour, IKinematicMover
     {
         // Shakes per second while warning.
         const float TrembleRate = 14f;
@@ -78,6 +80,19 @@ namespace ProjectVelocity
         Material shownMaterial;
         BoxCollider[] boxes;
         bool moving;
+        bool warned;
+        bool started;
+        bool landed;
+        // World pose before and after the last change, for carrying a player who stands on it.
+        Matrix4x4 beforeWorldToLocal = Matrix4x4.identity;
+        Matrix4x4 afterLocalToWorld = Matrix4x4.identity;
+
+        /// <summary>Raised when its warning starts (it starts to glow and tremble).</summary>
+        public event Action<RealityChunk> WarningStarted;
+        /// <summary>Raised when it starts to move.</summary>
+        public event Action<RealityChunk> MoveStarted;
+        /// <summary>Raised when it lands on its destination.</summary>
+        public event Action<RealityChunk> MoveFinished;
 
         public float Delay
         {
@@ -118,6 +133,48 @@ namespace ProjectVelocity
         /// <summary>True while it is in its move (not while waiting, warning or settled).</summary>
         public bool IsMoving => moving;
 
+        /// <summary>Where a point that was on the piece before its last change is now.</summary>
+        public Vector3 CarryPoint(Vector3 point)
+        {
+            return afterLocalToWorld.MultiplyPoint3x4(beforeWorldToLocal.MultiplyPoint3x4(point));
+        }
+
+        /// <summary>World-space centre of all its boxes in the current pose (for effects).</summary>
+        public Vector3 BoundsCenter
+        {
+            get
+            {
+                Bounds b = WorldBounds;
+                return b.center;
+            }
+        }
+
+        /// <summary>World-space bounds of all its boxes in the current pose (for effects).</summary>
+        public Bounds WorldBounds
+        {
+            get
+            {
+                BoxCollider[] all = Boxes;
+                bool any = false;
+                var bounds = new Bounds(transform.position, Vector3.zero);
+                for (int i = 0; i < all.Length; i++)
+                {
+                    if (all[i] == null)
+                        continue;
+                    if (!any)
+                    {
+                        bounds = all[i].bounds;
+                        any = true;
+                    }
+                    else
+                    {
+                        bounds.Encapsulate(all[i].bounds);
+                    }
+                }
+                return bounds;
+            }
+        }
+
         /// <summary>Every box that moves with this piece (its own, and any inner piece's).</summary>
         public BoxCollider[] Boxes
         {
@@ -157,7 +214,30 @@ namespace ProjectVelocity
             ApplyPose(0f, Vector3.zero);
             appliedProgress = 0f;
             moving = false;
+            warned = false;
+            started = false;
+            landed = false;
             SetMaterial(dormantMaterial);
+            ResetCarry();
+        }
+
+        /// <summary>Straight to the destination pose and settled look, as if it had played (restarting past it).</summary>
+        public void SnapToFinal()
+        {
+            ApplyPose(1f, Vector3.zero);
+            appliedProgress = 1f;
+            moving = false;
+            warned = true;
+            started = true;
+            landed = true;
+            SetMaterial(settledMaterial != null ? settledMaterial : dormantMaterial);
+            ResetCarry();
+        }
+
+        void ResetCarry()
+        {
+            beforeWorldToLocal = transform.worldToLocalMatrix;
+            afterLocalToWorld = transform.localToWorldMatrix;
         }
 
         /// <summary>
@@ -174,6 +254,22 @@ namespace ProjectVelocity
             bool waiting = time < 0f;
             bool warning = waiting && time >= -anticipation;
             moving = !waiting && time < length;
+            if (warning && !warned)
+            {
+                warned = true;
+                WarningStarted?.Invoke(this);
+            }
+            if (!waiting && !started)
+            {
+                started = true;
+                MoveStarted?.Invoke(this);
+            }
+            if (time >= length && !landed)
+            {
+                landed = true;
+                MoveFinished?.Invoke(this);
+            }
+            beforeWorldToLocal = transform.worldToLocalMatrix;
             Material look = warning ? warningMaterial
                 : waiting ? (pulse ? shiftingMaterial : dormantMaterial)
                 : time < length + landingFlash ? shiftingMaterial
@@ -186,6 +282,7 @@ namespace ProjectVelocity
                 float shake = Mathf.Sin((time + anticipation) * TrembleRate * 2f * Mathf.PI) * tremble;
                 ApplyPose(0f, TrembleDirection() * shake);
                 appliedProgress = -1f;
+                afterLocalToWorld = transform.localToWorldMatrix;
                 return true;
             }
 
@@ -194,6 +291,7 @@ namespace ProjectVelocity
                 return false;
             ApplyPose(progress, Vector3.zero);
             appliedProgress = progress;
+            afterLocalToWorld = transform.localToWorldMatrix;
             return true;
         }
 
@@ -207,6 +305,7 @@ namespace ProjectVelocity
                 body.interpolation = RigidbodyInterpolation.None;
             }
             boxes = GetComponentsInChildren<BoxCollider>(true);
+            ResetCarry();
         }
 
         void ApplyPose(float progress, Vector3 offset)

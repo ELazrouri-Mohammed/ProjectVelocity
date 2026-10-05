@@ -27,20 +27,8 @@ namespace ProjectVelocity
 
         // Longest step (s) per frame, matching the motor's: after a hitch the architecture doesn't jump ahead of the player.
         const float MaxStep = 0.05f;
-        // Extra room (m) left between the player and a piece that shoved them.
-        const float ClearanceMargin = 0.02f;
-        // How far (m) a hazard must have pushed into the player for its hit to count (grazing it doesn't).
-        const float HitDepth = 0.03f;
-        // How far (m) a piece may still be inside the player after the shoves before it counts as crushing them.
-        const float CrushDepth = 0.15f;
-        // Shove passes per frame, so a player wedged in a moving corner settles into it instead of being called crushed.
-        const int ShovePasses = 3;
-        // How long (s) the HUD keeps showing why the player was last reset.
-        const float FailureShownFor = 3f;
 
         static readonly List<RealityTransformSequence> active = new List<RealityTransformSequence>();
-        static string lastFailure;
-        static float lastFailureTime = float.NegativeInfinity;
 
         [Tooltip("The pieces, in order (the order only matters with Stagger).")]
         [SerializeField] RealityChunk[] chunks;
@@ -68,13 +56,17 @@ namespace ProjectVelocity
         Phase phase = Phase.Dormant;
         float elapsed;
         CharacterController body;
+        VelocityMotor motor;
         bool[] movedThisFrame;
+
+        /// <summary>Raised when the stage starts playing.</summary>
+        public event System.Action<RealityTransformSequence> Started;
 
         /// <summary>Every enabled sequence. Debug readout.</summary>
         public static IReadOnlyList<RealityTransformSequence> Active => active;
 
         /// <summary>Why the player was last reset by moving architecture, for a few seconds afterwards; otherwise null. Debug readout.</summary>
-        public static string RecentFailure => Time.time - lastFailureTime < FailureShownFor ? lastFailure : null;
+        public static string RecentFailure => KinematicResolver.RecentFailure;
 
         public Phase State => phase;
 
@@ -130,13 +122,14 @@ namespace ProjectVelocity
             set => wakePulse = Mathf.Max(0f, value);
         }
 
+        /// <summary>The pieces this stage moves.</summary>
+        public RealityChunk[] Chunks => chunks;
+
         // Survives play mode without a domain reload.
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
         static void ResetRegistry()
         {
             active.Clear();
-            lastFailure = null;
-            lastFailureTime = float.NegativeInfinity;
         }
 
         /// <summary>Sets the pieces (used by the movement test builder).</summary>
@@ -154,6 +147,7 @@ namespace ProjectVelocity
                 return;
             phase = Phase.Playing;
             elapsed = 0f;
+            Started?.Invoke(this);
         }
 
         /// <summary>Every piece back to its initial pose and look at once, ready to play again.</summary>
@@ -168,6 +162,19 @@ namespace ProjectVelocity
                     chunks[i].SnapToInitial();
             }
             // Colliders follow their transforms only at the next physics step: catch them up now.
+            Physics.SyncTransforms();
+        }
+
+        /// <summary>Every piece straight to its destination, as if the stage had played (restarting past it).</summary>
+        public void CompleteInstantly()
+        {
+            phase = Phase.Complete;
+            elapsed = TotalDuration;
+            for (int i = 0; chunks != null && i < chunks.Length; i++)
+            {
+                if (chunks[i] != null)
+                    chunks[i].SnapToFinal();
+            }
             Physics.SyncTransforms();
         }
 
@@ -224,10 +231,9 @@ namespace ProjectVelocity
         }
 
         /// <summary>
-        /// Deals with pieces that moved into the player this frame. Returns true when the player was reset.
-        /// 1. A hazard in mid-move that has pushed into them: hit, reset.
-        /// 2. Anything else: shove them out of it the shortest way (position only: the motor's speed is left alone).
-        /// 3. Still inside something after the shoves: pinned between moving architecture and something else. Crushed, reset.
+        /// Deals with pieces that moved this frame (see <see cref="KinematicResolver"/>): carries a player standing on one,
+        /// fails them if a hazard hits them, shoves them out of the way, fails them if they end up pinned. Returns true when the
+        /// player failed.
         /// </summary>
         bool ResolvePlayer()
         {
@@ -236,77 +242,11 @@ namespace ProjectVelocity
                 if (player == null)
                     return false;
                 body = player.GetComponent<CharacterController>();
+                motor = player.GetComponent<VelocityMotor>();
                 if (body == null)
                     return false;
             }
-            if (!body.enabled)
-                return false;
-
-            RealityContact.Capsule(body, out Vector3 top, out Vector3 bottom, out float radius);
-            for (int i = 0; i < chunks.Length; i++)
-            {
-                if (movedThisFrame[i] && chunks[i].IsLethal && chunks[i].IsMoving &&
-                    DeepestOverlap(chunks[i], top, bottom, radius, out _, out _) > HitDepth)
-                {
-                    Fail("hit by " + chunks[i].name);
-                    return true;
-                }
-            }
-
-            for (int pass = 0; pass < ShovePasses; pass++)
-            {
-                bool shoved = false;
-                for (int i = 0; i < chunks.Length; i++)
-                {
-                    if (!movedThisFrame[i])
-                        continue;
-                    if (DeepestOverlap(chunks[i], top, bottom, radius, out Vector3 direction, out float depth) > 0f)
-                    {
-                        body.Move(direction * (depth + ClearanceMargin));
-                        RealityContact.Capsule(body, out top, out bottom, out radius);
-                        shoved = true;
-                    }
-                }
-                if (!shoved)
-                    return false;
-            }
-
-            for (int i = 0; i < chunks.Length; i++)
-            {
-                if (movedThisFrame[i] && DeepestOverlap(chunks[i], top, bottom, radius, out _, out _) > CrushDepth)
-                {
-                    Fail("crushed by " + chunks[i].name);
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        /// <summary>The deepest overlap (m, 0 when none) between the capsule and any of a piece's boxes, and the way out of it.</summary>
-        static float DeepestOverlap(RealityChunk chunk, Vector3 top, Vector3 bottom, float radius, out Vector3 direction, out float depth)
-        {
-            direction = Vector3.zero;
-            depth = 0f;
-            BoxCollider[] boxes = chunk.Boxes;
-            for (int j = 0; j < boxes.Length; j++)
-            {
-                BoxCollider box = boxes[j];
-                if (box == null || !box.enabled)
-                    continue;
-                if (RealityContact.Penetration(top, bottom, radius, box, out Vector3 way, out float amount) && amount > depth)
-                {
-                    depth = amount;
-                    direction = way;
-                }
-            }
-            return depth;
-        }
-
-        void Fail(string reason)
-        {
-            lastFailure = reason;
-            lastFailureTime = Time.time;
-            player.Respawn();
+            return KinematicResolver.Resolve(player, body, motor, chunks, movedThisFrame, chunks.Length);
         }
 
         float StartTime(int index)
