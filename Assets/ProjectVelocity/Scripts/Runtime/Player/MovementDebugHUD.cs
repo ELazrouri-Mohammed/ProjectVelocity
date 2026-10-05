@@ -4,7 +4,7 @@ using DeviceScreen = UnityEngine.Device.Screen;
 namespace ProjectVelocity
 {
     /// <summary>
-    /// Tiny developer readout (speed, state, boost, target, attack) to help put numbers on how movement feels.
+    /// Tiny developer readout (speed, state, boost, target, attack, reality sequence) to help put numbers on how movement feels.
     /// Not game UI: disable the component to hide it.
     /// </summary>
     [DisallowMultipleComponent]
@@ -31,6 +31,7 @@ namespace ProjectVelocity
         float smoothedFrameTime;
         float refreshTimer;
         string stats;
+        bool showsReality;
 
         public VelocityMotor Motor
         {
@@ -106,6 +107,9 @@ namespace ProjectVelocity
                     : $"selected   {targeting.SelectedDistance:0.0} m   {targeting.SelectedAngle:0}°" + (motor.CanActivateTarget ? "" : "   (cooldown)");
             }
 
+            string reality = BuildReality();
+            showsReality = reality != null;
+
             return
                 $"Speed  {speed:0.0} m/s  ({speed * 3.6f:0} km/h)   vertical {motor.Velocity.y:+0.0;-0.0;0.0}\n" +
                 $"State  {state}\n" +
@@ -113,7 +117,40 @@ namespace ProjectVelocity
                 $"Last wall jump  {wallJump}\n" +
                 $"Target  {target}\n" +
                 (combat != null ? BuildCombat() + "\n" : "") +
+                (reality != null ? reality + "\n" : "") +
                 $"FPS    {fps:0}";
+        }
+
+        /// <summary>
+        /// How many reality stages have gone off, and the one moving right now (the latest to start); for a few seconds after
+        /// moving architecture resets you, what did it instead. Null when the scene has none.
+        /// </summary>
+        static string BuildReality()
+        {
+            var sequences = RealityTransformSequence.Active;
+            if (sequences.Count == 0)
+                return null;
+
+            string failure = RealityTransformSequence.RecentFailure;
+            if (failure != null)
+                return $"Reality  RESET: {failure}";
+
+            int started = 0;
+            RealityTransformSequence moving = null;
+            for (int i = 0; i < sequences.Count; i++)
+            {
+                RealityTransformSequence sequence = sequences[i];
+                if (sequence.State == RealityTransformSequence.Phase.Dormant)
+                    continue;
+                started++;
+                if (sequence.State == RealityTransformSequence.Phase.Playing && (moving == null || sequence.Elapsed < moving.Elapsed))
+                    moving = sequence;
+            }
+
+            string stages = $"Reality  {started}/{sequences.Count} stages";
+            if (moving != null)
+                return $"{stages}   {moving.name}  {moving.Elapsed:0.0}s";
+            return started == sequences.Count ? stages + "   all in place (R / RESET puts it back)" : stages;
         }
 
         string BuildCombat()
@@ -153,7 +190,7 @@ namespace ProjectVelocity
             float left = safe.xMin + 16f;
             float width = safe.width - 32f;
             float lineHeight = style.fontSize * 1.5f;
-            float lines = combat != null ? 7.5f : 6.5f;
+            float lines = (combat != null ? 7.5f : 6.5f) + (showsReality ? 1f : 0f);
             DrawShadowed(new Rect(left, screenHeight - safe.yMax + 12f, width, lineHeight * lines), stats);
 
             string controls = showControls && player != null && player.InputSource != null ? player.InputSource.ControlsHint : null;

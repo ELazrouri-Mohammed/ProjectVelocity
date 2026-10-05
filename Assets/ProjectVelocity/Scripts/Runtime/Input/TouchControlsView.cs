@@ -50,6 +50,9 @@ namespace ProjectVelocity
         readonly Graphic[] buttonGraphics = new Graphic[ButtonCount];
         readonly Color[] buttonColors = new Color[ButtonCount];
         readonly bool[] buttonPressed = new bool[ButtonCount];
+        readonly bool[] buttonUnavailable = new bool[ButtonCount];
+        readonly bool[] buttonHighlighted = new bool[ButtonCount];
+        readonly float[] buttonDiameter = new float[ButtonCount];
         bool stickActive;
 
         /// <summary>Hooks up the parts (used by the scene builder).</summary>
@@ -113,7 +116,33 @@ namespace ProjectVelocity
                 rect.gameObject.SetActive(visible);
             float diameter = radius * 2f / pixelsPerUnit;
             rect.anchoredPosition = centre / pixelsPerUnit;
-            rect.sizeDelta = new Vector2(diameter, diameter);
+            buttonDiameter[(int)button] = diameter;
+            ApplySize((int)button);
+        }
+
+        /// <summary>
+        /// Shows whether a button would do something right now: dimmed when unavailable (no boost left), enlarged and bright when
+        /// highlighted (LINK while something is in reach). Only touches the element when the state changes.
+        /// </summary>
+        public void SetButtonState(TouchButton button, bool available, bool highlighted)
+        {
+            Init();
+            int index = (int)button;
+            if (buttonUnavailable[index] == !available && buttonHighlighted[index] == highlighted)
+                return;
+            buttonUnavailable[index] = !available;
+            buttonHighlighted[index] = highlighted;
+            ApplyOpacity(buttonGraphics[index], buttonColors[index], buttonPressed[index], index);
+            ApplySize(index);
+        }
+
+        void ApplySize(int index)
+        {
+            RectTransform rect = GetButton((TouchButton)index);
+            if (rect == null || buttonDiameter[index] <= 0f)
+                return;
+            float d = buttonDiameter[index] * (buttonHighlighted[index] ? 1.12f : 1f);
+            rect.sizeDelta = new Vector2(d, d);
         }
 
         public void SetButtonPressed(TouchButton button, bool pressed)
@@ -123,7 +152,7 @@ namespace ProjectVelocity
             if (buttonPressed[index] == pressed)
                 return;
             buttonPressed[index] = pressed;
-            ApplyOpacity(buttonGraphics[index], buttonColors[index], pressed);
+            ApplyOpacity(buttonGraphics[index], buttonColors[index], pressed, index);
         }
 
         void Awake()
@@ -152,7 +181,7 @@ namespace ProjectVelocity
                 buttonGraphics[i] = rect != null ? rect.GetComponent<Graphic>() : null;
                 buttonColors[i] = buttonGraphics[i] != null ? buttonGraphics[i].color : Color.white;
                 buttonPressed[i] = false;
-                ApplyOpacity(buttonGraphics[i], buttonColors[i], false);
+                ApplyOpacity(buttonGraphics[i], buttonColors[i], false, i);
             }
         }
 
@@ -162,11 +191,19 @@ namespace ProjectVelocity
             return buttons != null && index < buttons.Length ? buttons[index] : null;
         }
 
-        void ApplyOpacity(Graphic graphic, Color color, bool active)
+        void ApplyOpacity(Graphic graphic, Color color, bool active, int button = -1)
         {
             if (graphic == null)
                 return;
-            color.a = active ? activeOpacity : idleOpacity;
+            float alpha = active ? activeOpacity : idleOpacity;
+            if (button >= 0 && !active)
+            {
+                if (buttonHighlighted[button])
+                    alpha = Mathf.Max(alpha, activeOpacity * 0.85f);
+                else if (buttonUnavailable[button])
+                    alpha *= 0.4f;
+            }
+            color.a = alpha;
             graphic.color = color;
         }
     }

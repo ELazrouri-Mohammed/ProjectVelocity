@@ -13,8 +13,9 @@ namespace ProjectVelocity.EditorTools
     /// Tools > Project Velocity > Build Movement Test.
     /// (Re)creates the graybox playground, the player and the camera, fully wired, and saves the scene.
     /// Tuning assets are created once and never overwritten, so rebuilding keeps your tuning.
+    /// Section J (reality transformation) lives in MovementTestBuilder.Reality.cs.
     /// </summary>
-    public static class MovementTestBuilder
+    public static partial class MovementTestBuilder
     {
         const string Root = "Assets/ProjectVelocity";
         public const string ScenePath = Root + "/Scenes/MovementTest.unity";
@@ -136,6 +137,11 @@ namespace ProjectVelocity.EditorTools
             player.GetComponent<TraversalTargeting>().Viewpoint = cameraRig.transform;
             player.GetComponent<CombatTargeting>().Viewpoint = cameraRig.transform;
             player.GetComponent<CombatController>().CameraRig = cameraRig;
+            var playerController = player.GetComponent<VelocityPlayerController>();
+            foreach (RealityTrigger trigger in UnityEngine.Object.FindObjectsByType<RealityTrigger>(FindObjectsSortMode.None))
+                trigger.Player = playerController;
+            foreach (RealityTransformSequence stage in UnityEngine.Object.FindObjectsByType<RealityTransformSequence>(FindObjectsSortMode.None))
+                stage.Player = playerController;
 
             CheckMeshes(scene);
             EditorSceneManager.SaveScene(scene, ScenePath);
@@ -149,6 +155,10 @@ namespace ProjectVelocity.EditorTools
                       "E launches you through the selected (pink) target. " +
                       "The combat section is to the left of the spawn: turn left and run west; Left Mouse or F attacks the " +
                       "selected (yellow) enemy. " +
+                      "The reality transformation section is behind the spawn to the right: turn around and run south-west to " +
+                      "the red gate at x = -60, then west into the giant corridor and keep moving: the building rebuilds itself " +
+                      "around you in stages, and red architecture can crush or hit you. Failing anywhere in it (or R / RESET) " +
+                      "restarts it from its entrance. " +
                       "Tune movement and targets on the Player (Velocity Motor), combat on the Player (Combat Controller) and " +
                       "camera on the Main Camera (Velocity Camera). " +
                       "Touch controls appear on Android/iOS and in the Device Simulator; to try them in the Game view, set " +
@@ -248,6 +258,7 @@ namespace ProjectVelocity.EditorTools
             BuildWallSection(root, p);
             BuildTargetSection(root, p);
             BuildCombatSection(root, p);
+            BuildRealitySection(root, p);
         }
 
         /// <summary>
@@ -471,7 +482,7 @@ namespace ProjectVelocity.EditorTools
             return target;
         }
 
-        static Transform Group(string name, Transform parent)
+        internal static Transform Group(string name, Transform parent)
         {
             var go = new GameObject(name);
             if (parent != null)
@@ -479,7 +490,7 @@ namespace ProjectVelocity.EditorTools
             return go.transform;
         }
 
-        static GameObject Box(string name, Transform parent, float xMin, float xMax, float yMin, float yMax, float zMin, float zMax, Material material)
+        internal static GameObject Box(string name, Transform parent, float xMin, float xMax, float yMin, float yMax, float zMin, float zMax, Material material)
         {
             var centre = new Vector3((xMin + xMax) * 0.5f, (yMin + yMax) * 0.5f, (zMin + zMax) * 0.5f);
             var size = new Vector3(xMax - xMin, yMax - yMin, zMax - zMin);
@@ -516,7 +527,7 @@ namespace ProjectVelocity.EditorTools
         }
 
         /// <summary>Ramp whose low edge is centred on <paramref name="lowEdge"/>, rising toward <paramref name="facingYaw"/>.</summary>
-        static GameObject Ramp(string name, Transform parent, Vector3 lowEdge, float facingYaw, float width, float length, float rise, Material material)
+        internal static GameObject Ramp(string name, Transform parent, Vector3 lowEdge, float facingYaw, float width, float length, float rise, Material material)
         {
             Mesh mesh = GrayboxMeshes.Ramp(width, length, rise);
             GameObject go = CreateMeshObject(name, parent, lowEdge, Quaternion.Euler(0f, facingYaw, 0f), mesh, material);
@@ -526,7 +537,7 @@ namespace ProjectVelocity.EditorTools
             return go;
         }
 
-        static GameObject CreateMeshObject(string name, Transform parent, Vector3 position, Quaternion rotation, Mesh mesh, Material material)
+        internal static GameObject CreateMeshObject(string name, Transform parent, Vector3 position, Quaternion rotation, Mesh mesh, Material material)
         {
             var go = new GameObject(name);
             go.transform.SetParent(parent, false);
@@ -709,7 +720,7 @@ namespace ProjectVelocity.EditorTools
             return blade;
         }
 
-        static GameObject Primitive(PrimitiveType type, string name, Transform parent, Vector3 localPosition, Vector3 localScale, Material material)
+        internal static GameObject Primitive(PrimitiveType type, string name, Transform parent, Vector3 localPosition, Vector3 localScale, Material material)
         {
             GameObject go = GameObject.CreatePrimitive(type);
             go.name = name;
@@ -721,7 +732,7 @@ namespace ProjectVelocity.EditorTools
             return go;
         }
 
-        static void SetLayerRecursively(Transform root, int layer)
+        internal static void SetLayerRecursively(Transform root, int layer)
         {
             root.gameObject.layer = layer;
             foreach (Transform child in root)
@@ -760,7 +771,7 @@ namespace ProjectVelocity.EditorTools
         /// plus a small debug RESET. Hidden until the Mobile Input Source is in use. Positions and sizes come from Touch Controls Tuning
         /// at runtime (inside the safe area), so the placement here is only a preview.
         /// </summary>
-        static TouchControlsView BuildTouchControls()
+        internal static TouchControlsView BuildTouchControls(string actionLabel = "ACTION")
         {
             Sprite disc = LoadOrCreateCircleSprite(TouchDiscPath, false);
             Sprite pad = LoadOrCreateCircleSprite(TouchPadPath, true);
@@ -781,7 +792,7 @@ namespace ProjectVelocity.EditorTools
             // Colour-coded: violet ACTION matches the traversal targets it launches through, red ATTACK the enemies it cuts.
             RectTransform jump = UIButton("Jump", go.transform, pad, new Color(0.85f, 0.95f, 1f), "JUMP", 34, font, new Vector2(1670f, 240f), 105f);
             RectTransform boost = UIButton("Boost", go.transform, pad, new Color(1f, 0.72f, 0.35f), "BOOST", 28, font, new Vector2(1400f, 180f), 82f);
-            RectTransform action = UIButton("Action", go.transform, pad, new Color(0.82f, 0.55f, 1f), "ACTION", 26, font, new Vector2(1695f, 495f), 82f);
+            RectTransform action = UIButton("Action", go.transform, pad, new Color(0.82f, 0.55f, 1f), actionLabel, 26, font, new Vector2(1695f, 495f), 82f);
             RectTransform reset = UIButton("Reset (debug)", go.transform, pad, new Color(0.8f, 0.8f, 0.8f), "RESET", 18, font, new Vector2(1830f, 1000f), 46f);
             RectTransform attack = UIButton("Attack", go.transform, pad, new Color(1f, 0.42f, 0.38f), "ATTACK", 26, font, new Vector2(1470f, 400f), 90f);
 
@@ -790,7 +801,7 @@ namespace ProjectVelocity.EditorTools
             return view;
         }
 
-        static RectTransform UIImage(string name, Transform parent, Sprite sprite, Color color, Vector2 position, float diameter)
+        internal static RectTransform UIImage(string name, Transform parent, Sprite sprite, Color color, Vector2 position, float diameter)
         {
             var go = new GameObject(name, typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
             go.layer = UILayer;
@@ -808,7 +819,7 @@ namespace ProjectVelocity.EditorTools
             return rect;
         }
 
-        static RectTransform UIButton(string name, Transform parent, Sprite sprite, Color color, string label, int fontSize, Font font,
+        internal static RectTransform UIButton(string name, Transform parent, Sprite sprite, Color color, string label, int fontSize, Font font,
             Vector2 position, float radius)
         {
             RectTransform button = UIImage(name, parent, sprite, color, position, radius * 2f);
@@ -835,7 +846,7 @@ namespace ProjectVelocity.EditorTools
         }
 
         /// <summary>White anti-aliased circle sprite: solid (stick knob), or a soft fill with a bright rim (stick base, buttons).</summary>
-        static Sprite LoadOrCreateCircleSprite(string path, bool rimmed)
+        internal static Sprite LoadOrCreateCircleSprite(string path, bool rimmed)
         {
             var existing = AssetDatabase.LoadAssetAtPath<Sprite>(path);
             if (existing != null)
@@ -935,10 +946,22 @@ namespace ProjectVelocity.EditorTools
             public Material BladeSteel;
             public Material SlashFx;
             public Mesh SlashArc;
+            public Material RealityBody;
+            public Material RealityDormant;
+            public Material RealityWarning;
+            public Material RealityShifting;
+            public Material RealitySettled;
+            public Material HazardBody;
+            public Material HazardDormant;
+            public Material HazardWarning;
+            public Material HazardMoving;
         }
 
         // Colour-coded for readability only: orange = ramps, blue = elevated path, green = towers, red = markers, teal = wall-run walls,
-        // violet = traversal targets (pink while selected, grey while cooling down), glowing red = enemies (yellow while selected).
+        // violet = traversal targets (pink while selected, grey while cooling down), glowing red = enemies (yellow while selected),
+        // dark violet-grey with glowing seams = reality-changing architecture (seams dim cyan while dormant, violet while about to
+        // move, bright cyan while moving, softer cyan once settled), dark red with red seams = dangerous architecture that can
+        // crush or hit you (seams flash orange just before it moves).
         static Palette CreatePalette()
         {
             Texture2D grid = LoadOrCreateGridTexture();
@@ -963,6 +986,15 @@ namespace ProjectVelocity.EditorTools
                 EnemyHit = GlowMat("Enemy_Hit", Color.white, Color.white),
                 BladeSteel = GlowMat("Blade_Steel", new Color(0.8f, 0.86f, 0.95f), new Color(0.15f, 0.3f, 0.45f)),
                 SlashFx = FxMat("Slash_Arc", new Color(0.65f, 0.92f, 1f, 0.6f)),
+                RealityBody = Mat("Reality_Body", new Color(0.30f, 0.28f, 0.40f), grid),
+                RealityDormant = GlowMat("Reality_Dormant", new Color(0.20f, 0.55f, 0.65f), new Color(0.05f, 0.30f, 0.38f)),
+                RealityWarning = GlowMat("Reality_Warning", new Color(0.80f, 0.45f, 1f), new Color(1.5f, 0.45f, 2.4f)),
+                RealityShifting = GlowMat("Reality_Shifting", new Color(0.80f, 1f, 1f), new Color(0.70f, 2.0f, 2.4f)),
+                RealitySettled = GlowMat("Reality_Settled", new Color(0.35f, 0.85f, 0.95f), new Color(0.12f, 0.65f, 0.80f)),
+                HazardBody = Mat("Hazard_Body", new Color(0.42f, 0.16f, 0.16f), grid),
+                HazardDormant = GlowMat("Hazard_Dormant", new Color(0.70f, 0.12f, 0.08f), new Color(0.45f, 0.04f, 0.02f)),
+                HazardWarning = GlowMat("Hazard_Warning", new Color(1f, 0.60f, 0.15f), new Color(2.4f, 0.95f, 0.15f)),
+                HazardMoving = GlowMat("Hazard_Moving", new Color(1f, 0.25f, 0.20f), new Color(2.2f, 0.25f, 0.15f)),
 
                 // Generated meshes last, after every asset operation, and only once the new scene is open (see Build).
                 TargetRing = GrayboxMeshes.Torus(TargetRingRadius, 0.12f, 48, 10),
@@ -976,7 +1008,7 @@ namespace ProjectVelocity.EditorTools
         /// Unlit, transparent, double-sided material for placeholder effects (the slash arc). Its colour and alpha are driven at
         /// runtime through a property block, so the asset only sets the surface up.
         /// </summary>
-        static Material FxMat(string name, Color color)
+        internal static Material FxMat(string name, Color color)
         {
             string path = $"{GeneratedFolder}/{name}.mat";
             Shader shader = Shader.Find("Universal Render Pipeline/Unlit");
@@ -1012,7 +1044,7 @@ namespace ProjectVelocity.EditorTools
         }
 
         /// <summary>A <see cref="Mat"/> that glows, so targets read from a distance. Black emission = no glow.</summary>
-        static Material GlowMat(string name, Color color, Color emission)
+        internal static Material GlowMat(string name, Color color, Color emission)
         {
             Material material = Mat(name, color, null);
             bool glows = emission.maxColorComponent > 0f;
@@ -1026,7 +1058,7 @@ namespace ProjectVelocity.EditorTools
             return material;
         }
 
-        static Material Mat(string name, Color color, Texture texture)
+        internal static Material Mat(string name, Color color, Texture texture)
         {
             string path = $"{GeneratedFolder}/{name}.mat";
             Shader shader = Shader.Find("Universal Render Pipeline/Lit");
@@ -1124,7 +1156,7 @@ namespace ProjectVelocity.EditorTools
             EditorBuildSettings.scenes = scenes.ToArray();
         }
 
-        static T LoadOrCreateAsset<T>(string path) where T : ScriptableObject
+        internal static T LoadOrCreateAsset<T>(string path) where T : ScriptableObject
         {
             var asset = AssetDatabase.LoadAssetAtPath<T>(path);
             if (asset != null)
@@ -1136,7 +1168,7 @@ namespace ProjectVelocity.EditorTools
             return asset;
         }
 
-        static void EnsureFolder(string folder)
+        internal static void EnsureFolder(string folder)
         {
             if (AssetDatabase.IsValidFolder(folder))
                 return;
@@ -1145,7 +1177,7 @@ namespace ProjectVelocity.EditorTools
             AssetDatabase.CreateFolder(parent, Path.GetFileName(folder));
         }
 
-        static void SelectAsset(UnityEngine.Object asset)
+        internal static void SelectAsset(UnityEngine.Object asset)
         {
             Selection.activeObject = asset;
             EditorGUIUtility.PingObject(asset);

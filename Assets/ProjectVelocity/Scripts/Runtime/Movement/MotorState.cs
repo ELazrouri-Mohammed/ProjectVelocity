@@ -11,5 +11,7 @@ namespace ProjectVelocity
         Target,
         /// <summary>Lunging at an enemy (blade attack).</summary>
         Lunge,
+        /// <summary>Swinging on (or zipping along) the tether.</summary>
+        Tether,
     }
 }

@@ -88,5 +88,56 @@ namespace ProjectVelocity
         [Tooltip("Tiny camera feedback on a kill: the field of view widens by this many degrees and eases back. 0 = off. " +
                  "The camera is never turned or locked.")]
         [Range(0f, 10f)] public float killFovKick = 2f;
+
+        [Header("Attack Variants")]
+        [Tooltip("Aerial attack (attacking in the air): blade reach (m). A wide vertical arc that cuts what you fly past.")]
+        [Min(0f)] public float aerialReach = 2.8f;
+
+        [Tooltip("Aerial attack: how far (degrees) to either side of the attack direction it cuts.")]
+        [Range(0f, 180f)] public float aerialHitAngle = 150f;
+
+        [Tooltip("An aerial kill pops you up at least this fast (m/s), keeping your speed, so kills chain in the air. 0 = off.")]
+        [Min(0f)] public float aerialKillPop = 9f;
+
+        [Tooltip("Dash strike: attacking while boosting, or this fast or faster (m/s), cuts straight through without slowing.")]
+        [Min(0f)] public float dashSpeed = 33f;
+
+        [Tooltip("Dash strike: blade reach (m).")]
+        [Min(0f)] public float dashReach = 3.4f;
+
+        [Tooltip("Dash strike: how far (degrees) to either side of your motion it cuts.")]
+        [Range(0f, 180f)] public float dashHitAngle = 75f;
+
+        [Tooltip("Dash strike: how long (s) it keeps cutting as you pass through.")]
+        [Min(0f)] public float dashActiveTime = 0.22f;
+
+        [Header("Impact")]
+        [Tooltip("A kill freezes the world this long (s, real time). Tiny: it should be felt, not seen. 0 = off.")]
+        [Min(0f)] public float killHitStop = 0.035f;
+
+        [Tooltip("Killing a heavy enemy freezes the world this long (s).")]
+        [Min(0f)] public float heavyKillHitStop = 0.09f;
+
+        [Tooltip("A deflected hit freezes the world this long (s).")]
+        [Min(0f)] public float deflectHitStop = 0.05f;
+
+        [Tooltip("A deflected hit knocks you back this fast (m/s), away from the armour.")]
+        [Min(0f)] public float deflectKnockback = 15f;
+
+        [Header("Pulse (ranged)")]
+        [Tooltip("Attack with no enemy in blade or lunge range fires the pulse at a selected enemy (or switch) up to this far (m).")]
+        [Min(0f)] public float pulseRange = 42f;
+
+        [Tooltip("How far off your intent (degrees) a pulse target may be.")]
+        [Range(1f, 90f)] public float pulseSelectionAngle = 22f;
+
+        [Tooltip("Seconds before the pulse is ready again.")]
+        [Min(0f)] public float pulseCooldown = 2.2f;
+
+        [Tooltip("Pulse speed (m/s). It homes in on its target.")]
+        [Min(1f)] public float pulseSpeed = 95f;
+
+        [Tooltip("A kill makes the pulse ready at once.")]
+        public bool killRechargesPulse = true;
     }
 }

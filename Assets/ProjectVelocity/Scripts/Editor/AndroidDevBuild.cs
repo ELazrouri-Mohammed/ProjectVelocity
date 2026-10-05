@@ -8,25 +8,49 @@ using UnityEngine;
 namespace ProjectVelocity.EditorTools
 {
     /// <summary>
-    /// Tools > Project Velocity > Build Android Development APK (and Build And Run On Android Device).
-    /// Builds only the Movement Test as a debug-signed development APK in Builds/Android/ (ignored by git), landscape only.
-    /// No release signing, no store bundle.
+    /// Tools > Project Velocity > Build Android Development APK (and Build And Run On Android Device): the Movement Test,
+    /// landscape only. Tools > Project Velocity > Build Vertical Slice APK (Portrait) (and Build And Run): the vertical slice,
+    /// portrait only. Each builds only its own scene as a debug-signed development APK in Builds/Android/ (ignored by git) and
+    /// sets the orientation it needs before building. No release signing, no store bundle.
     /// </summary>
     public static class AndroidDevBuild
     {
         const string OutputFolder = "Builds/Android";
         const string ApkName = "ProjectVelocity-MovementTest-dev.apk";
+        const string SliceApkName = "ProjectVelocity-VerticalSlice-dev.apk";
 
         [MenuItem("Tools/Project Velocity/Build Android Development APK", priority = 40)]
         public static void BuildApk()
         {
-            Build(false);
+            Build(false, false);
         }
 
         [MenuItem("Tools/Project Velocity/Build And Run On Android Device (USB)", priority = 41)]
         public static void BuildAndRun()
         {
-            Build(true);
+            Build(true, false);
+        }
+
+        [MenuItem("Tools/Project Velocity/Build Vertical Slice APK (Portrait)", priority = 42)]
+        public static void BuildSliceApk()
+        {
+            Build(false, true);
+        }
+
+        [MenuItem("Tools/Project Velocity/Build And Run Vertical Slice On Android Device (USB, Portrait)", priority = 43)]
+        public static void BuildAndRunSlice()
+        {
+            Build(true, true);
+        }
+
+        /// <summary>Upright portrait only (no upside-down): the slice is designed for a phone held in one hand.</summary>
+        public static void ApplyPortraitOrientation()
+        {
+            PlayerSettings.defaultInterfaceOrientation = UIOrientation.Portrait;
+            PlayerSettings.allowedAutorotateToPortrait = true;
+            PlayerSettings.allowedAutorotateToPortraitUpsideDown = false;
+            PlayerSettings.allowedAutorotateToLandscapeLeft = false;
+            PlayerSettings.allowedAutorotateToLandscapeRight = false;
         }
 
         /// <summary>Landscape only, either way up. Also set in Project Settings; re-applied here so a build can't come out portrait.</summary>
@@ -39,7 +63,7 @@ namespace ProjectVelocity.EditorTools
             PlayerSettings.allowedAutorotateToPortraitUpsideDown = false;
         }
 
-        static void Build(bool run)
+        static void Build(bool run, bool slice)
         {
             if (EditorApplication.isPlayingOrWillChangePlaymode || EditorApplication.isCompiling)
             {
@@ -58,8 +82,16 @@ namespace ProjectVelocity.EditorTools
             if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
                 return;
 
+            if (slice)
+            {
+                if (AssetDatabase.LoadAssetAtPath<SceneAsset>(VerticalSliceBuilder.ScenePath) == null)
+                {
+                    Debug.Log("[Project Velocity] Vertical slice scene not found: building it first.");
+                    VerticalSliceBuilder.Build();
+                }
+            }
             // A scene built before the touch controls existed would come out with keyboard/mouse only.
-            if (!SceneHasTouchControls())
+            else if (!SceneHasTouchControls())
             {
                 Debug.Log("[Project Velocity] Movement test scene is missing or predates the touch controls: rebuilding it first.");
                 MovementTestBuilder.Build();
@@ -78,15 +110,18 @@ namespace ProjectVelocity.EditorTools
                 }
             }
 
-            ApplyLandscapeOrientation();
+            if (slice)
+                ApplyPortraitOrientation();
+            else
+                ApplyLandscapeOrientation();
             EditorUserBuildSettings.buildAppBundle = false;
             EditorUserBuildSettings.exportAsGoogleAndroidProject = false;
 
             Directory.CreateDirectory(OutputFolder);
-            string apkPath = $"{OutputFolder}/{ApkName}";
+            string apkPath = $"{OutputFolder}/{(slice ? SliceApkName : ApkName)}";
             var options = new BuildPlayerOptions
             {
-                scenes = new[] { MovementTestBuilder.ScenePath },
+                scenes = new[] { slice ? VerticalSliceBuilder.ScenePath : MovementTestBuilder.ScenePath },
                 locationPathName = apkPath,
                 target = BuildTarget.Android,
                 targetGroup = BuildTargetGroup.Android,

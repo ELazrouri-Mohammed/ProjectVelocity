@@ -4,8 +4,9 @@ namespace ProjectVelocity
 {
     /// <summary>
     /// Touch control feel and layout. Stored as an asset so tweaks made while playing are kept after leaving Play Mode.
-    /// Sizes and positions are in layout units: 1080 units = the short side of the screen (its height in landscape),
-    /// so the controls keep the same proportions on every phone, whatever its resolution.
+    /// Sizes and positions are in layout units: 1080 units = the short side of the screen (its height in landscape, its width in
+    /// portrait), so the controls keep the same proportions on every phone, whatever its resolution. There is one layout for
+    /// landscape screens and one for portrait screens; the feel values are shared.
     /// </summary>
     [CreateAssetMenu(menuName = "Project Velocity/Touch Controls Tuning", fileName = "TouchControlsTuning")]
     public sealed class TouchControlsTuning : ScriptableObject
@@ -89,6 +90,34 @@ namespace ProjectVelocity
         [Tooltip("Reset button centre, from the top-right corner of the safe area: x = leftward, y = downward (units).")]
         public Vector2 resetPosition = new Vector2(90f, 80f);
         [Min(10f)] public float resetRadius = 46f;
+
+        [Header("Portrait Layout (tall screens)")]
+        [Tooltip("Rest position of the stick's centre in portrait, from the bottom-left corner of the safe area (units; 1080 = screen width).")]
+        public Vector2 portraitStickPosition = new Vector2(250f, 330f);
+
+        [Tooltip("Portrait movement zone width, as a fraction of the safe area from its left edge.")]
+        [Range(0.2f, 0.7f)] public float portraitMovementZoneWidth = 0.5f;
+
+        [Tooltip("Portrait movement zone height, as a fraction of the safe area from its bottom edge. Touches above it turn the " +
+                 "camera, so the whole upper screen is a look pad.")]
+        [Range(0.2f, 0.8f)] public float portraitMovementZoneHeight = 0.42f;
+
+        [Tooltip("Portrait button centres, from the bottom-right corner of the safe area: x = leftward, y = upward (units). " +
+                 "BOOST, ATTACK and LINK sit on an arc around JUMP.")]
+        public Vector2 portraitJumpPosition = new Vector2(215f, 300f);
+        [Min(10f)] public float portraitJumpRadius = 118f;
+
+        public Vector2 portraitBoostPosition = new Vector2(440f, 210f);
+        [Min(10f)] public float portraitBoostRadius = 90f;
+
+        public Vector2 portraitAttackPosition = new Vector2(400f, 480f);
+        [Min(10f)] public float portraitAttackRadius = 95f;
+
+        public Vector2 portraitActionPosition = new Vector2(190f, 590f);
+        [Min(10f)] public float portraitActionRadius = 92f;
+
+        [Tooltip("Portrait reset button centre, from the top-right corner of the safe area: x = leftward, y = downward (units).")]
+        public Vector2 portraitResetPosition = new Vector2(80f, 90f);
 
         [System.NonSerialized] int version;
 

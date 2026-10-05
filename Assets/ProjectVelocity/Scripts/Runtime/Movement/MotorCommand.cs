@@ -22,6 +22,24 @@ namespace ProjectVelocity
 
         /// <summary>Lunge to start this frame, or none (default). Requested by <see cref="CombatController"/>.</summary>
         public MotorLunge Lunge;
+
+        /// <summary>Tether to attach this frame, or none (default). Requested by <see cref="TetherController"/>.</summary>
+        public MotorTether Tether;
+
+        /// <summary>Let go of the tether this frame (the LINK button was released).</summary>
+        public bool ReleaseTether;
+    }
+
+    /// <summary>
+    /// A tether to attach (see VelocityMotor.Tether.cs). The motor only moves; <see cref="TetherController"/> decides which
+    /// anchor and when, and <see cref="TetherTuning"/> carries the feel values for the whole swing.
+    /// </summary>
+    public struct MotorTether
+    {
+        public TetherAnchor Anchor;
+        public TetherTuning Settings;
+
+        public bool IsRequested => Anchor != null && Settings != null;
     }
 
     /// <summary>
