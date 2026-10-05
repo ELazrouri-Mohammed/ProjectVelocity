@@ -43,7 +43,7 @@ namespace ProjectVelocity.EditorTools
             Build(true, true);
         }
 
-        /// <summary>Portrait only, either way up is not offered: the slice is designed for a phone held upright.</summary>
+        /// <summary>Upright portrait only (no upside-down): the slice is designed for a phone held in one hand.</summary>
         public static void ApplyPortraitOrientation()
         {
             PlayerSettings.defaultInterfaceOrientation = UIOrientation.Portrait;
